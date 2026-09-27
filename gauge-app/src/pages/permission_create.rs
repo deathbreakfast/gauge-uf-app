@@ -1,6 +1,5 @@
 use gauge::types::PermissionCreateInput;
 use leptos::prelude::*;
-use leptos::task::spawn_local_scoped;
 use leptos_router::hooks::use_navigate;
 use leptos_router::NavigateOptions;
 use uf_product::components::{Body1, Caption1, Card};
@@ -10,6 +9,7 @@ use uf_product::primitives::{
     MessageBarIntent, Select, SelectAppearance, Textarea,
 };
 
+use crate::pages::step_up::spawn_with_step_up;
 use crate::server::{create_permission, list_domains};
 
 /// Form page for creating a new permission (name, description, domain); the owner
@@ -38,14 +38,15 @@ pub fn PermissionCreatePage() -> impl IntoView {
             owners_group_id: String::new(),
             domain_id: domain_id.get(),
         };
-        spawn_local_scoped(async move {
-            match create_permission(payload).await {
-                Ok(new_id) => navigate(
-                    &format!("/permission/permissions/{new_id}"),
-                    NavigateOptions::default(),
-                ),
-                Err(err) => error.set(Some(err.to_string())),
-            }
+        let finish_ok = Callback::new(move |new_id: String| {
+            navigate(
+                &format!("/permission/permissions/{new_id}"),
+                NavigateOptions::default(),
+            );
+        });
+        spawn_with_step_up(error, finish_ok, move || {
+            let payload = payload.clone();
+            async move { create_permission(payload).await }
         });
     };
 

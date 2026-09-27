@@ -6,9 +6,9 @@
 //! the same page components without `Lazy`.
 
 use gauge_app::{
-    DomainCreatePage, GroupCreatePage, GroupDetailPage, GroupsIndexPage, PermissionCreatePage,
-    PermissionDetailPage, PermissionLayout, PermissionsIndexPage, RequestDetailPage,
-    RequestsIndexPage,
+    DomainCreatePage, DomainDetailPage, GroupCreatePage, GroupDetailPage, GroupsIndexPage,
+    PermissionCreatePage, PermissionDetailPage, PermissionLayout, PermissionsIndexPage,
+    RequestDetailPage, RequestsIndexPage,
 };
 use leptos::prelude::*;
 use leptos_router::{
@@ -27,6 +27,7 @@ pub fn PermissionRoutesEager() -> impl leptos_router::MatchNestedRoutes + Clone 
             <Route path=path!("permissions/:id") view=PermissionDetailPage />
             <Route path=path!("create-permission") view=PermissionCreatePage />
             <Route path=path!("create-domain") view=DomainCreatePage />
+            <Route path=path!("domains/:id") view=DomainDetailPage />
             <Route path=path!("groups") view=GroupsIndexPage />
             <Route path=path!("groups/:id") view=GroupDetailPage />
             <Route path=path!("create-group") view=GroupCreatePage />

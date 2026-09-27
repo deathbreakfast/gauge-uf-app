@@ -2,6 +2,8 @@
 
 /// [`DomainCreatePage`] — permission domain creation form.
 pub mod domain_create;
+/// [`DomainDetailPage`] — permission domain detail/edit page.
+pub mod domain_detail;
 /// [`GroupCreatePage`] — permission group creation form.
 pub mod group_create;
 /// [`GroupDetailPage`] — permission group detail/edit page.
@@ -20,8 +22,11 @@ pub mod request_detail;
 pub mod requests_index;
 /// Shared UI pieces used across multiple pages.
 pub mod shared;
+/// TOTP step-up retry helpers for Tier A mutations.
+pub mod step_up;
 
 pub use domain_create::DomainCreatePage;
+pub use domain_detail::DomainDetailPage;
 pub use group_create::GroupCreatePage;
 pub use group_detail::GroupDetailPage;
 pub use groups_index::GroupsIndexPage;

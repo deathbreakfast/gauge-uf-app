@@ -62,20 +62,3 @@ export CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback
 export RUSTFLAGS="-D warnings -Zcrate-attr=feature(stdarch_x86_avx512)"
 cargo dylint --all -p gauge-app --no-deps -- --features hydrate
 ```
-
-## Guide-contract audit
-
-After a successful `cargo doc` (absolute `--doc-root` required — relative paths
-resolve under `uf-docs-guide-contracts/workspaces/`):
-
-```bash
-CONTRACT=~/unified-field/uf-docs-guide-contracts/workspaces/gauge-uf-app
-python3 ~/.cursor/skills/uf-high-signal-docs/guide_audit.py \
-  "$CONTRACT/doc-guide-spec.toml" \
-  --doc-root "$PWD/target-gauge-uf-app/doc" \
-  --freeze "$CONTRACT/doc-guide-freeze.json"
-```
-
-A missing `gauge_app/index.html` (`MISSING_PAGE`) is an honest Partial when the
-Orbital pin blocks doc builds (observed: `orbital-datatable` `Show`/`Signal<bool>`
-compile error under current Leptos pin). Re-run after the host graph compiles.

@@ -33,7 +33,10 @@ pub fn DomainCreatePage() -> impl IntoView {
         };
         spawn_local_scoped(async move {
             match create_domain(payload).await {
-                Ok(_) => navigate(crate::paths::CREATE_PERMISSION, NavigateOptions::default()),
+                Ok(id) => navigate(
+                    &format!("/permission/domains/{id}"),
+                    NavigateOptions::default(),
+                ),
                 Err(err) => error.set(Some(err.to_string())),
             }
         });
@@ -47,7 +50,7 @@ pub fn DomainCreatePage() -> impl IntoView {
                     <Flex vertical=true gap=FlexGap::Small padding=SpacingSize::Size200.inset()>
                         <Title3>"Create Permission Domain"</Title3>
                         <Caption1>
-                            "Create a permission domain used to group related permission definitions."
+                            "Create a permission domain used to group related permission definitions. You become the first owner."
                         </Caption1>
                     </Flex>
                 </Card>

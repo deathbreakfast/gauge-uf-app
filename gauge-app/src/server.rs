@@ -26,6 +26,9 @@ use uf_search_core::{SearchSourceItem, SearchSourceKey};
 /// Permission name required for gauge admin mutations (manifest: [`crate::permissions::GaugePermission::GaugeAdmin`]).
 pub const GAUGE_ADMIN_PERMISSION: &str = "GaugeAdmin";
 
+/// Well-known Super User group id (mirrors `gauge::super_user::SUPER_USER_GROUP_ID` on SSR).
+pub const SUPER_USER_GROUP_ID: &str = "super_user_group";
+
 #[cfg(feature = "ssr")]
 fn require_session(ctx: &higgs::Higgs) -> Result<(), ServerFnError> {
     if ctx.session_user_id().is_some() {
@@ -46,6 +49,22 @@ fn map_service_err(op: &'static str, e: impl std::fmt::Display) -> ServerFnError
 fn valence_from_ctx(ctx: &higgs::Higgs) -> Result<valence::Valence, ServerFnError> {
     ctx.valence()
         .map_err(|e| map_service_err("build Valence", e))
+}
+
+/// Window step-up for ordinary groups; fresh TOTP when mutating Super User membership.
+#[cfg(feature = "ssr")]
+async fn require_group_membership_step_up(
+    group_id: &str,
+    totp_code: &str,
+) -> Result<(), ServerFnError> {
+    if group_id == SUPER_USER_GROUP_ID {
+        lepton_auth::verify_fresh_totp(totp_code)
+            .await
+            .map_err(|e| e.to_server_fn_error())?;
+    } else {
+        uf_product::permissions::require_step_up("window").await?;
+    }
+    Ok(())
 }
 
 /// List permissions, optionally filtered by search text.
@@ -141,8 +160,97 @@ pub async fn create_domain(
         .unwrap_or_default())
 }
 
-/// Create a permission and return its id.
+/// Fetch one permission domain by id.
+#[uf_product_macros::server]
+pub async fn get_domain(
+    /// Unique identifier of the domain to fetch.
+    id: String,
+) -> Result<Option<PermissionDomainDetailDto>, ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    gauge::service::get_domain_detail(&id, &valence_from_ctx(&ctx)?)
+        .await
+        .map_err(|e| map_service_err("load domain detail", e))
+}
+
+/// Payload for [`update_domain`].
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UpdateDomainInput {
+    /// Domain id to update.
+    pub id: String,
+    /// New display name.
+    pub name: String,
+    /// New description.
+    pub description: String,
+}
+
+/// Update a permission domain.
 #[uf_product_macros::server(permission = "GaugeAdmin")]
+pub async fn update_domain(
+    /// Updated fields for the target domain.
+    input: UpdateDomainInput,
+) -> Result<(), ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    gauge::service::update_domain(
+        &input.id,
+        input.name,
+        input.description,
+        &valence_from_ctx(&ctx)?,
+    )
+    .await
+    .map_err(|e| map_service_err("update domain", e))?;
+    Ok(())
+}
+
+/// Delete a permission domain.
+#[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
+pub async fn delete_domain(
+    /// Unique identifier of the domain to delete.
+    id: String,
+) -> Result<(), ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    gauge::service::delete_domain(&id, &valence_from_ctx(&ctx)?)
+        .await
+        .map_err(|e| map_service_err("delete domain", e))?;
+    Ok(())
+}
+
+/// Add a user as an owner of a domain.
+#[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
+pub async fn add_domain_owner_user(
+    /// Unique identifier of the domain to add the owner to.
+    domain_id: String,
+    /// Unique identifier of the user to add as an owner.
+    user_id: String,
+) -> Result<(), ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    gauge::service::add_domain_owner_user(&domain_id, &user_id, &valence_from_ctx(&ctx)?)
+        .await
+        .map_err(|e| map_service_err("add domain owner user", e))?;
+    Ok(())
+}
+
+/// Remove a user from the owner list of a domain.
+#[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
+pub async fn remove_domain_owner_user(
+    /// Unique identifier of the domain to remove the owner from.
+    domain_id: String,
+    /// Unique identifier of the user to remove from the owner list.
+    user_id: String,
+) -> Result<(), ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    gauge::service::remove_domain_owner_user(&domain_id, &user_id, &valence_from_ctx(&ctx)?)
+        .await
+        .map_err(|e| map_service_err("remove domain owner user", e))?;
+    Ok(())
+}
+
+/// Create a permission and return its id.
+#[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
 pub async fn create_permission(
     /// Fields describing the new permission.
     input: PermissionCreateInput,
@@ -174,7 +282,7 @@ pub struct UpdatePermissionInput {
 }
 
 /// Update an existing permission.
-#[uf_product_macros::server(permission = "GaugeAdmin")]
+#[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
 pub async fn update_permission(
     /// Updated fields for the target permission.
     input: UpdatePermissionInput,
@@ -195,7 +303,7 @@ pub async fn update_permission(
 }
 
 /// Delete a permission by id.
-#[uf_product_macros::server(permission = "GaugeAdmin")]
+#[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
 pub async fn delete_permission(
     /// Unique identifier of the permission to delete.
     id: String,
@@ -256,7 +364,7 @@ pub async fn update_group(
 }
 
 /// Delete a permission group by id.
-#[uf_product_macros::server(permission = "GaugeAdmin")]
+#[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
 pub async fn delete_group(
     /// Unique identifier of the group to delete.
     id: String,
@@ -270,7 +378,7 @@ pub async fn delete_group(
 }
 
 /// Grant a permission directly to a user.
-#[uf_product_macros::server(permission = "GaugeAdmin")]
+#[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
 pub async fn add_permission_user(
     /// Unique identifier of the permission to grant.
     permission_id: String,
@@ -286,7 +394,7 @@ pub async fn add_permission_user(
 }
 
 /// Revoke a direct user permission grant.
-#[uf_product_macros::server(permission = "GaugeAdmin")]
+#[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
 pub async fn remove_permission_user(
     /// Unique identifier of the permission to revoke.
     permission_id: String,
@@ -302,7 +410,7 @@ pub async fn remove_permission_user(
 }
 
 /// Grant a permission to a group.
-#[uf_product_macros::server(permission = "GaugeAdmin")]
+#[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
 pub async fn add_permission_group(
     /// Unique identifier of the permission to grant.
     permission_id: String,
@@ -318,7 +426,7 @@ pub async fn add_permission_group(
 }
 
 /// Revoke a group permission grant.
-#[uf_product_macros::server(permission = "GaugeAdmin")]
+#[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
 pub async fn remove_permission_group(
     /// Unique identifier of the permission to revoke.
     permission_id: String,
@@ -344,9 +452,12 @@ pub async fn add_group_user(
     group_id: String,
     /// Unique identifier of the user to add as a member.
     user_id: String,
+    /// Fresh TOTP when `group_id` is the Super User group; ignored otherwise.
+    totp_code: String,
 ) -> Result<(), ServerFnError> {
     let ctx = higgs::Higgs::from_request().await?;
     require_session(&ctx)?;
+    require_group_membership_step_up(&group_id, &totp_code).await?;
     gauge::service::add_group_member_user(&group_id, &user_id, &valence_from_ctx(&ctx)?)
         .await
         .map_err(|e| map_service_err("add group user", e))?;
@@ -360,9 +471,12 @@ pub async fn add_group_owner_user(
     group_id: String,
     /// Unique identifier of the user to add as an owner.
     user_id: String,
+    /// Fresh TOTP when `group_id` is the Super User group; ignored otherwise.
+    totp_code: String,
 ) -> Result<(), ServerFnError> {
     let ctx = higgs::Higgs::from_request().await?;
     require_session(&ctx)?;
+    require_group_membership_step_up(&group_id, &totp_code).await?;
     gauge::service::add_group_owner_user(&group_id, &user_id, &valence_from_ctx(&ctx)?)
         .await
         .map_err(|e| map_service_err("add group owner user", e))?;
@@ -376,9 +490,12 @@ pub async fn remove_group_owner_user(
     group_id: String,
     /// Unique identifier of the user to remove from the owner list.
     user_id: String,
+    /// Fresh TOTP when `group_id` is the Super User group; ignored otherwise.
+    totp_code: String,
 ) -> Result<(), ServerFnError> {
     let ctx = higgs::Higgs::from_request().await?;
     require_session(&ctx)?;
+    require_group_membership_step_up(&group_id, &totp_code).await?;
     gauge::service::remove_group_owner_user(&group_id, &user_id, &valence_from_ctx(&ctx)?)
         .await
         .map_err(|e| map_service_err("remove group owner user", e))?;
@@ -392,9 +509,12 @@ pub async fn remove_group_user(
     group_id: String,
     /// Unique identifier of the user to remove from membership.
     user_id: String,
+    /// Fresh TOTP when `group_id` is the Super User group; ignored otherwise.
+    totp_code: String,
 ) -> Result<(), ServerFnError> {
     let ctx = higgs::Higgs::from_request().await?;
     require_session(&ctx)?;
+    require_group_membership_step_up(&group_id, &totp_code).await?;
     gauge::service::remove_group_member_user(&group_id, &user_id, &valence_from_ctx(&ctx)?)
         .await
         .map_err(|e| map_service_err("remove group user", e))?;
@@ -402,7 +522,7 @@ pub async fn remove_group_user(
 }
 
 /// Add a child group relationship to a parent group.
-#[uf_product_macros::server(permission = "GaugeAdmin")]
+#[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
 pub async fn add_group_group(
     /// Unique identifier of the parent group.
     group_id: String,
@@ -418,7 +538,7 @@ pub async fn add_group_group(
 }
 
 /// Remove a child group relationship from a parent group.
-#[uf_product_macros::server(permission = "GaugeAdmin")]
+#[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
 pub async fn remove_group_group(
     /// Unique identifier of the parent group.
     group_id: String,
@@ -673,7 +793,7 @@ pub async fn get_permission_request(
 }
 
 /// Approve or reject a permission request.
-#[uf_product_macros::server]
+#[uf_product_macros::server(step_up)]
 pub async fn decide_permission_request(
     /// Decision (approve/reject) and target request id.
     input: PermissionRequestDecisionInput,

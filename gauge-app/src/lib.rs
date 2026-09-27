@@ -13,6 +13,12 @@
 //!   server wrappers. Mount once when the host router starts.
 //!   [Get started](#mount-permission-admin-routes)
 //!
+//! - **Privilege mutation step-up** — Tier A admin mutations carry
+//!   `#[uf_product_macros::server(..., step_up)]`. Pages retry after
+//!   [`pages::step_up::spawn_with_step_up`] opens the TOTP prompt. Super User
+//!   membership changes use [`pages::step_up::spawn_with_fresh_totp`].
+//!   [Get started](#add-step-up-to-a-privilege-mutation)
+//!
 //! - **Show History** — Permission and group detail pages open a dialog with a
 //!   paginated Record History timeline ([`pages::shared::history_dialog::HistoryDialog`]).
 //!   The page loader ([`server::get_gauge_history_page`]) requires a session and
@@ -65,6 +71,38 @@
 //! inside [`PermissionLayout`] (app bar stays visible). Admin mutations use
 //! Higgs `#[uf_product_macros::server(permission = "GaugeAdmin")]` — see
 //! [gauge `SECURITY.md`](https://github.com/unified-field-dev/gauge/blob/main/SECURITY.md).
+//!
+//! ## Add step-up to a privilege mutation
+//!
+//! Privilege mutations (grant/revoke, membership, permission delete/update,
+//! request decide, domain owner/delete) expand `step_up` on the Higgs server
+//! attribute so the call fails closed without a recent TOTP window. Pages wrap
+//! the server fn with [`pages::step_up::spawn_with_step_up`]: on
+//! `STEP_UP:step_up_required` / `_expired`, the helper opens the mounted
+//! step-up dialog, verifies TOTP, then retries once. Super User membership
+//! changes use [`pages::step_up::spawn_with_fresh_totp`] instead of the window
+//! path.
+//!
+//! **Prerequisites:** Host mounted `lepton-auth-ui` `provide_step_up_controller`
+//! + `StepUpDialog`; `ssr` on this crate; actor with `GaugeAdmin`.
+//!
+//! ```rust,ignore
+//! use gauge_app::pages::step_up::spawn_with_step_up;
+//! use gauge_app::server::add_permission_user;
+//! use leptos::prelude::*;
+//!
+//! let error = RwSignal::new(None::<String>);
+//! let finish_ok = Callback::new(move |_: ()| { /* refresh */ });
+//! spawn_with_step_up(error, finish_ok, move || {
+//!     let permission_id = permission_id.clone();
+//!     let user_id = user_id.clone();
+//!     async move { add_permission_user(permission_id, user_id).await }
+//! });
+//! // server: #[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
+//! ```
+//!
+//! On `STEP_UP:step_up_required` / `_expired`, helper opens dialog, verifies
+//! TOTP, retries once; assert completed.
 //!
 //! ## Show History on detail pages
 //!
@@ -195,13 +233,14 @@ pub use bridge::wire_gauge_permissions;
 pub use help_steps::ensure_help_steps_linked;
 pub use layout::PermissionLayout;
 pub use lazy_routes::{
-    prefetch_family, DomainCreateRoute, GroupCreateRoute, GroupDetailRoute, GroupsIndexRoute,
-    PermissionCreateRoute, PermissionDetailRoute, PermissionsIndexRoute, RequestDetailRoute,
-    RequestsIndexRoute,
+    prefetch_family, DomainCreateRoute, DomainDetailRoute, GroupCreateRoute, GroupDetailRoute,
+    GroupsIndexRoute, PermissionCreateRoute, PermissionDetailRoute, PermissionsIndexRoute,
+    RequestDetailRoute, RequestsIndexRoute,
 };
 pub use pages::{
-    DomainCreatePage, GroupCreatePage, GroupDetailPage, GroupsIndexPage, PermissionCreatePage,
-    PermissionDetailPage, PermissionsIndexPage, RequestDetailPage, RequestsIndexPage,
+    DomainCreatePage, DomainDetailPage, GroupCreatePage, GroupDetailPage, GroupsIndexPage,
+    PermissionCreatePage, PermissionDetailPage, PermissionsIndexPage, RequestDetailPage,
+    RequestsIndexPage,
 };
 
 uf_app! {
@@ -230,6 +269,7 @@ pub fn PermissionRoutes() -> impl leptos_router::MatchNestedRoutes + Clone {
             <Route path=path!("permissions/:id") view={Lazy::<PermissionDetailRoute>::new()} />
             <Route path=path!("create-permission") view={Lazy::<PermissionCreateRoute>::new()} />
             <Route path=path!("create-domain") view={Lazy::<DomainCreateRoute>::new()} />
+            <Route path=path!("domains/:id") view={Lazy::<DomainDetailRoute>::new()} />
             <Route path=path!("groups") view={Lazy::<GroupsIndexRoute>::new()} />
             <Route path=path!("groups/:id") view={Lazy::<GroupDetailRoute>::new()} />
             <Route path=path!("create-group") view={Lazy::<GroupCreateRoute>::new()} />

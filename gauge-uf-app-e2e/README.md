@@ -5,10 +5,11 @@ insecure session cookies, `POST /api/test/seed-data`, harness auth (no lepton si
 
 ## Run
 
+From the repository root:
+
 ```bash
 export CARGO_BUILD_JOBS=1
 export CARGO_TARGET_DIR=target-gauge-uf-app
-cd /home/seanorourke/unified-field/L4-composers/gauge-uf-app
 cd gauge-uf-app-e2e/end2end && npm ci && npx playwright install chromium && cd ../..
 cargo leptos end-to-end --project gauge-uf-app-e2e
 ```
@@ -35,8 +36,9 @@ Auth: `e2e.auth.anonymous_gate`, `e2e.auth.unverified_email_gate`
 Permissions index: `e2e.perm.index.load_happy`, `search_match`, `search_no_match`,
 `open_row`, `create_cta`
 
-Domain / permission create: `e2e.domain.create.happy` (domain selectable on create-permission),
-`no_admin`, `empty_name`; `e2e.perm.create.happy` (domain Select), `domain_required_client`,
+Domain / permission create: `e2e.domain.create.happy` (navigates to domain detail),
+`save_happy`, `add_owner`, `remove_owner`, `owner_picker_no_admin`, `no_admin`,
+`empty_name`; `e2e.perm.create.happy` (domain Select), `domain_required_client`,
 `no_domains`, `domains_error`, `no_admin`
 
 Permission detail: `load_happy`, `allow_empty`, `save_happy`, `save_no_admin`, `grant_user`,
@@ -50,7 +52,8 @@ Groups: index load/search/open/create CTA; create `happy` / `no_admin` / `empty_
 `dup_name`; detail `load_happy`, `save_happy`, `save_no_admin`, `add_member_user`,
 `add_member_group`, `add_owner` (Open owner actions), `remove_owner`,
 `owner_picker_no_admin`, `member_picker_no_admin`, `request_submit_happy`,
-`request_btn_hidden`, `request_empty_reason`, `not_found`, `history_entries`,
+`request_btn_hidden`, `request_empty_reason`, `not_found`, `delete_happy`,
+`history_entries`,
 `history_relation_member` (fresh group + Added member relation row),
 `history_acl_deny` (outsider → Not authorized MessageBar)
 
@@ -79,11 +82,10 @@ Search (K12): `e2e.search.principals_initial`, `principals_query_user`,
 | `e2e.perm.detail.outsider_omit` | Domain `permission_detail_allow_list_editor_matrix` (outsider empty allow_list) |
 | `e2e.group.detail.save_non_owner` / `add_owner_fail` | Domain owner privacy integ |
 | `e2e.group.detail.remove_owner_cancel` | Cancel-without-mutation pattern covered by `e2e.perm.detail.revoke_cancel` |
-| `e2e.group.detail.delete_happy` | Same pending-deletion list behavior as permissions; enable once group delete E2E is added |
 | `e2e.perm.detail.history_empty` / `e2e.group.detail.history_empty` | History row content covered by `history_entries` + domain `history_integration` |
 | `e2e.req.index.review_empty` / `mine_empty` | Needs wipe-all requests seed mode |
 | `e2e.req.detail.decide_unauthorized` | Overlaps `unauthorized_viewer` + `no_actions_outsider` |
 | Loading-only spinners | Smokes, not primary |
 
 Domain service contracts stay in `gauge` `permission_domain_contract` / privacy suites.
-Full lepton credential matrices: `lepton-auth-ui-e2e`. L5 composition: `uf-embedded-e2e`.
+Full lepton credential matrices: `lepton-auth-ui-e2e`. Full-stack composition: `uf-embedded-e2e`.

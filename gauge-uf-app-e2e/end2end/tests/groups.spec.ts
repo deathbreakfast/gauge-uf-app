@@ -299,6 +299,27 @@ test.describe("e2e.group.detail", () => {
     await expect(page.getByLabel(/Description/i).first()).toHaveValue(desc, { timeout: 60_000 });
   });
 
+  test("e2e.group.detail.delete_happy", async ({ page }) => {
+    await seedAuth(page, "admin");
+    await page.goto("/permission/create-group", { waitUntil: "domcontentloaded" });
+    await waitForHydrated(page);
+    const name = `E2E-Del-Group-${Date.now()}`;
+    await page.getByLabel(/Display name|Group name/i).fill(name);
+    await page.getByLabel(/Description/i).fill("delete me");
+    await page.getByRole("button", { name: /Create Group/i }).click();
+    await expect(page).toHaveURL(/\/permission\/groups\//, { timeout: 60_000 });
+    await waitForHydrated(page);
+    await page.getByRole("button", { name: /Delete Group/i }).click();
+    await expect(page).toHaveURL(/\/permission\/groups\/?$/, { timeout: 60_000 });
+    await waitForHydrated(page);
+    await page.goto("/permission/groups", { waitUntil: "domcontentloaded" });
+    await waitForHydrated(page);
+    await page.getByPlaceholder(/Search by group/i).fill(name);
+    await expect(
+      page.locator("#gauge-groups-list").getByText(name, { exact: true }),
+    ).toHaveCount(0, { timeout: 30_000 });
+  });
+
   test("e2e.group.detail.request_submit_happy", async ({ page }) => {
     const { fixtures } = await seedAuth(page, "outsider");
     await page.goto(`/permission/groups/${fixtures.group_id}`, {

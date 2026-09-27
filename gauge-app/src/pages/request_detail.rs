@@ -1,6 +1,5 @@
 use gauge::types::PermissionRequestStatusDto;
 use leptos::prelude::*;
-use leptos::task::spawn_local_scoped;
 use leptos_router::hooks::use_params_map;
 use uf_product::components::{Body1, Caption1, Card};
 use uf_product::components::{ContentContainer, SpacingSize, Title3};
@@ -8,6 +7,7 @@ use uf_product::primitives::{
     Button, ButtonAppearance, Flex, FlexGap, FlexJustify, MessageBar, MessageBarIntent,
 };
 
+use crate::pages::step_up::spawn_with_step_up;
 use crate::server::{decide_permission_request, get_permission_request};
 
 const fn status_label(status: &PermissionRequestStatusDto) -> &'static str {
@@ -34,15 +34,20 @@ pub fn RequestDetailPage() -> impl IntoView {
 
     let decide = move |decision: gauge::types::PermissionRequestDecision| {
         let request_id = request_id.get();
-        spawn_local_scoped(async move {
-            match decide_permission_request(gauge::types::PermissionRequestDecisionInput {
-                request_id,
-                decision,
-            })
-            .await
-            {
-                Ok(_) => refresh.update(|n| *n += 1),
-                Err(err) => error.set(Some(err.to_string())),
+        let finish_ok = Callback::new(move |_: ()| {
+            refresh.update(|n| *n += 1);
+            error.set(None);
+        });
+        spawn_with_step_up(error, finish_ok, move || {
+            let request_id = request_id.clone();
+            let decision = decision.clone();
+            async move {
+                decide_permission_request(gauge::types::PermissionRequestDecisionInput {
+                    request_id,
+                    decision,
+                })
+                .await
+                .map(|_| ())
             }
         });
     };

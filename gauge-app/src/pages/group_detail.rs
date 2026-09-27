@@ -17,10 +17,11 @@ use uf_product::primitives::{
 use uf_search_core::{SearchSourceItem, SearchSourceKey};
 
 use crate::pages::shared::history_dialog::HistoryDialog;
+use crate::pages::step_up::{spawn_with_fresh_totp, spawn_with_step_up};
 use crate::server::{
     add_group_group, add_group_owner_user, add_group_user, create_permission_request, delete_group,
     get_group, remove_group_group, remove_group_owner_user, remove_group_user, search_principals,
-    update_group, UpdateGroupInput,
+    update_group, UpdateGroupInput, SUPER_USER_GROUP_ID,
 };
 
 /// Group detail/edit page: owners and members pickers, name/description editing,
@@ -112,18 +113,29 @@ pub fn GroupDetailPage() -> impl IntoView {
 
     let on_select = Callback::new(move |item: SearchSourceItem| {
         let group_id = group_id.get();
-        spawn_local_scoped(async move {
-            let res = if item.source_id == PermissionSearchSourceId::PermissionGroup.as_str() {
-                add_group_group(group_id, item.id).await
-            } else {
-                add_group_user(group_id, item.id).await
-            };
-            if let Err(err) = res {
-                error.set(Some(err.to_string()));
-            } else {
-                refresh.update(|n| *n += 1);
-            }
+        let finish_ok = Callback::new(move |_: ()| {
+            refresh.update(|n| *n += 1);
+            error.set(None);
         });
+        if item.source_id == PermissionSearchSourceId::PermissionGroup.as_str() {
+            spawn_with_step_up(error, finish_ok, move || {
+                let group_id = group_id.clone();
+                let nested_id = item.id.clone();
+                async move { add_group_group(group_id, nested_id).await }
+            });
+        } else if group_id == SUPER_USER_GROUP_ID {
+            spawn_with_fresh_totp(error, finish_ok, move |totp_code| {
+                let group_id = group_id.clone();
+                let user_id = item.id.clone();
+                async move { add_group_user(group_id, user_id, totp_code).await }
+            });
+        } else {
+            spawn_with_step_up(error, finish_ok, move || {
+                let group_id = group_id.clone();
+                let user_id = item.id.clone();
+                async move { add_group_user(group_id, user_id, String::new()).await }
+            });
+        }
     });
 
     let owner_request_initial = Callback::new(move |sources: Vec<SearchSourceKey>| {
@@ -161,16 +173,27 @@ pub fn GroupDetailPage() -> impl IntoView {
 
     let on_select_owner = Callback::new(move |item: SearchSourceItem| {
         let group_id = group_id.get();
-        spawn_local_scoped(async move {
-            if item.kind != "user" {
-                error.set(Some("Only users can be owners.".to_string()));
-                return;
-            }
-            match add_group_owner_user(group_id, item.id).await {
-                Ok(()) => refresh.update(|n| *n += 1),
-                Err(err) => error.set(Some(err.to_string())),
-            }
+        if item.kind != "user" {
+            error.set(Some("Only users can be owners.".to_string()));
+            return;
+        }
+        let finish_ok = Callback::new(move |_: ()| {
+            refresh.update(|n| *n += 1);
+            error.set(None);
         });
+        if group_id == SUPER_USER_GROUP_ID {
+            spawn_with_fresh_totp(error, finish_ok, move |totp_code| {
+                let group_id = group_id.clone();
+                let user_id = item.id.clone();
+                async move { add_group_owner_user(group_id, user_id, totp_code).await }
+            });
+        } else {
+            spawn_with_step_up(error, finish_ok, move || {
+                let group_id = group_id.clone();
+                let user_id = item.id.clone();
+                async move { add_group_owner_user(group_id, user_id, String::new()).await }
+            });
+        }
     });
 
     view! {
@@ -318,11 +341,14 @@ pub fn GroupDetailPage() -> impl IntoView {
                                                         appearance=ButtonAppearance::Secondary
                                                         on_click=Callback::new(move |_| {
                                                             let id = group_id.get();
-                                                            spawn_local_scoped(async move {
-                                                                match delete_group(id).await {
-                                                                    Ok(()) => navigate_store.with_value(|nav| nav(crate::paths::GROUPS, NavigateOptions::default())),
-                                                                    Err(err) => error.set(Some(err.to_string())),
-                                                                }
+                                                            let finish_ok = Callback::new(move |_: ()| {
+                                                                navigate_store.with_value(|nav| {
+                                                                    nav(crate::paths::GROUPS, NavigateOptions::default())
+                                                                });
+                                                            });
+                                                            spawn_with_step_up(error, finish_ok, move || {
+                                                                let id = id.clone();
+                                                                async move { delete_group(id).await }
                                                             });
                                                         })
                                                     >
@@ -463,7 +489,7 @@ pub fn GroupDetailPage() -> impl IntoView {
                                                                     let result = if is_group {
                                                                         remove_group_group(gid, principal_id).await
                                                                     } else {
-                                                                        remove_group_user(gid, principal_id).await
+                                                                        remove_group_user(gid, principal_id, String::new()).await
                                                                     };
                                                                     if let Err(err) = result {
                                                                         error.set(Some(err.to_string()));
@@ -513,7 +539,7 @@ pub fn GroupDetailPage() -> impl IntoView {
                                                             let gid = group_id.get();
                                                             if let Some((owner_user_id, _)) = pending {
                                                                 spawn_local_scoped(async move {
-                                                                    let result = remove_group_owner_user(gid, owner_user_id).await;
+                                                                    let result = remove_group_owner_user(gid, owner_user_id, String::new()).await;
                                                                     if let Err(err) = result {
                                                                         error.set(Some(err.to_string()));
                                                                     } else {

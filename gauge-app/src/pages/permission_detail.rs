@@ -17,6 +17,7 @@ use uf_product::primitives::{
 use uf_search_core::{SearchSourceItem, SearchSourceKey};
 
 use crate::pages::shared::history_dialog::HistoryDialog;
+use crate::pages::step_up::spawn_with_step_up;
 use crate::server::{
     add_permission_group, add_permission_user, create_permission_request, delete_permission,
     get_permission, list_domains, remove_permission_group, remove_permission_user,
@@ -72,11 +73,13 @@ pub fn PermissionDetailPage() -> impl IntoView {
             owners_group_id: owners_group_id.get(),
             domain_id: domain_id.get(),
         };
-        spawn_local_scoped(async move {
-            match update_permission(payload).await {
-                Ok(()) => refresh.update(|n| *n += 1),
-                Err(err) => error.set(Some(err.to_string())),
-            }
+        let finish_ok = Callback::new(move |_: ()| {
+            refresh.update(|n| *n += 1);
+            error.set(None);
+        });
+        spawn_with_step_up(error, finish_ok, move || {
+            let payload = payload.clone();
+            async move { update_permission(payload).await }
         });
     };
 
@@ -114,18 +117,23 @@ pub fn PermissionDetailPage() -> impl IntoView {
 
     let on_select = Callback::new(move |item: SearchSourceItem| {
         let permission_id = permission_id.get();
-        spawn_local_scoped(async move {
-            let res = if item.source_id == PermissionSearchSourceId::PermissionGroup.as_str() {
-                add_permission_group(permission_id, item.id).await
-            } else {
-                add_permission_user(permission_id, item.id).await
-            };
-            if let Err(err) = res {
-                error.set(Some(err.to_string()));
-            } else {
-                refresh.update(|n| *n += 1);
-            }
+        let finish_ok = Callback::new(move |_: ()| {
+            refresh.update(|n| *n += 1);
+            error.set(None);
         });
+        if item.source_id == PermissionSearchSourceId::PermissionGroup.as_str() {
+            spawn_with_step_up(error, finish_ok, move || {
+                let permission_id = permission_id.clone();
+                let group_id = item.id.clone();
+                async move { add_permission_group(permission_id, group_id).await }
+            });
+        } else {
+            spawn_with_step_up(error, finish_ok, move || {
+                let permission_id = permission_id.clone();
+                let user_id = item.id.clone();
+                async move { add_permission_user(permission_id, user_id).await }
+            });
+        }
     });
 
     view! {
@@ -243,11 +251,14 @@ pub fn PermissionDetailPage() -> impl IntoView {
                                                         appearance=ButtonAppearance::Secondary
                                                         on_click=Callback::new(move |_| {
                                                             let id = permission_id.get();
-                                                            spawn_local_scoped(async move {
-                                                                match delete_permission(id).await {
-                                                                    Ok(()) => navigate_store.with_value(|nav| nav(crate::paths::PERMISSIONS, NavigateOptions::default())),
-                                                                    Err(err) => error.set(Some(err.to_string())),
-                                                                }
+                                                            let finish_ok = Callback::new(move |_: ()| {
+                                                                navigate_store.with_value(|nav| {
+                                                                    nav(crate::paths::PERMISSIONS, NavigateOptions::default())
+                                                                });
+                                                            });
+                                                            spawn_with_step_up(error, finish_ok, move || {
+                                                                let id = id.clone();
+                                                                async move { delete_permission(id).await }
                                                             });
                                                         })
                                                     >

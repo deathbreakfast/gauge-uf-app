@@ -4,8 +4,9 @@ use leptos::prelude::*;
 use leptos_router::{lazy_route, LazyRoute};
 
 use crate::pages::{
-    DomainCreatePage, GroupCreatePage, GroupDetailPage, GroupsIndexPage, PermissionCreatePage,
-    PermissionDetailPage, PermissionsIndexPage, RequestDetailPage, RequestsIndexPage,
+    DomainCreatePage, DomainDetailPage, GroupCreatePage, GroupDetailPage, GroupsIndexPage,
+    PermissionCreatePage, PermissionDetailPage, PermissionsIndexPage, RequestDetailPage,
+    RequestsIndexPage,
 };
 
 /// Prefetch the permission family WASM chunk (leaf pages share split modules).
@@ -70,6 +71,21 @@ impl LazyRoute for DomainCreateRoute {
 
     fn view(_this: Self) -> AnyView {
         view! { <DomainCreatePage /> }.into_any()
+    }
+}
+
+/// Lazy `/permission/domains/:id` detail page.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DomainDetailRoute;
+
+#[lazy_route]
+impl LazyRoute for DomainDetailRoute {
+    fn data() -> Self {
+        Self
+    }
+
+    fn view(_this: Self) -> AnyView {
+        view! { <DomainDetailPage /> }.into_any()
     }
 }
 

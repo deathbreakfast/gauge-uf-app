@@ -98,6 +98,7 @@ axum = "0.8.4"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tower-sessions = "0.14.0"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde", "wasmbind"] }
+totp-rs = { version = "5.7", default-features = false }
 
 valence = { package = "uf-valence", git = "https://github.com/unified-field-dev/valence", branch = "main", default-features = false }
 gauge = { git = "https://github.com/unified-field-dev/gauge", branch = "main", default-features = false }
@@ -118,6 +119,8 @@ uf-help = { git = "https://github.com/unified-field-dev/unified-field-product", 
 uf-help-macros = { git = "https://github.com/unified-field-dev/unified-field-product", branch = "main" }
 inventory = "0.3"
 lepton-shell = { git = "https://github.com/unified-field-dev/lepton-uf-app", branch = "main", default-features = false }
+lepton-auth = { git = "https://github.com/unified-field-dev/lepton", branch = "main", default-features = false }
+lepton-auth-ui = { git = "https://github.com/unified-field-dev/lepton", branch = "main", default-features = false }
 
 # Kits may still declare Valence/Orbital via crates.io; unify onto uf-dev git.
 # types when lepton-shell pulls crates.io uf-valence-core).
@@ -154,4 +157,3 @@ orbital-discussion = { git = "https://github.com/unified-field-dev/orbital", bra
 orbital-history = { git = "https://github.com/unified-field-dev/orbital", branch = "main" }
 orbital-markdown = { git = "https://github.com/unified-field-dev/orbital", branch = "main" }
 orbital-style = { git = "https://github.com/unified-field-dev/orbital", branch = "main" }
-
