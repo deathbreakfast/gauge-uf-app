@@ -251,6 +251,7 @@ uf_app! {
     version: "0.1.0",
     routes: PermissionRoutes,
     route_path: "/permission",
+    repository: "https://github.com/unified-field-dev/gauge-uf-app",
     permission_manifest: permissions::GaugePermission,
 }
 
