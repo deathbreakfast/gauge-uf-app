@@ -1,0 +1,16 @@
+auth.spec.ts › e2e.auth › e2e.auth.anonymous_gate
+auth.spec.ts › e2e.auth › e2e.auth.unverified_email_gate
+requests.spec.ts › e2e.req.index › e2e.req.index.reviewer_sees_pending
+requests.spec.ts › e2e.req.index › e2e.req.index.requestor_sees_own
+requests.spec.ts › e2e.req.index › e2e.req.index.review_list_permission
+requests.spec.ts › e2e.req.index › e2e.req.index.review_list_group
+requests.spec.ts › e2e.req.detail › e2e.req.detail.deny_permission
+requests.spec.ts › e2e.req.detail › e2e.req.detail.deny_group
+requests.spec.ts › e2e.req.detail › e2e.req.detail.approve_permission
+requests.spec.ts › e2e.req.detail › e2e.req.detail.approve_group
+requests.spec.ts › e2e.req.detail › e2e.req.detail.terminal_denied
+requests.spec.ts › e2e.req.detail › e2e.req.detail.terminal_approved
+requests.spec.ts › e2e.req.detail › e2e.req.detail.no_actions_requestor
+requests.spec.ts › e2e.req.detail › e2e.req.detail.no_actions_outsider
+requests.spec.ts › e2e.req.detail › e2e.req.detail.unauthorized_viewer
+requests.spec.ts › e2e.req.detail › e2e.req.detail.not_found
