@@ -105,6 +105,7 @@ gauge = { git = "https://github.com/unified-field-dev/gauge", branch = "main", d
 higgs = { git = "https://github.com/unified-field-dev/higgs", branch = "main", default-features = false }
 higgs-identity = { git = "https://github.com/unified-field-dev/higgs", branch = "main" }
 lepton = { git = "https://github.com/unified-field-dev/lepton", branch = "main", default-features = false }
+lepton-identity = { git = "https://github.com/unified-field-dev/lepton", branch = "main", default-features = false }
 orbital-macros = { git = "https://github.com/unified-field-dev/orbital", branch = "main" }
 orbital-theme = { git = "https://github.com/unified-field-dev/orbital", branch = "main", default-features = false }
 orbital-paging = { git = "https://github.com/unified-field-dev/orbital", branch = "main" }

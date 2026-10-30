@@ -205,6 +205,40 @@ test.describe("e2e.group.detail", () => {
     await expectRolePrincipal(page, "member", "NestedDeployers");
   });
 
+  // pw-gauge-group-su-member-happy
+  test("e2e.group.detail.su_member_happy", async ({ page }) => {
+    const { fixtures } = await seedAuth(page, "admin", false, { serviceUserMember: true });
+    await page.goto(`/permission/groups/${fixtures.group_id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await waitForHydrated(page);
+    await expectRolePrincipal(page, "member", fixtures.foreign_service_user_handle);
+    // Kind and owner come from the service user, not the user fallback.
+    await expect(page.getByText(/^service user \(.+\), owner /i)).toBeVisible({
+      timeout: 30_000,
+    });
+  });
+
+  // pw-gauge-group-su-remove-happy
+  test("e2e.group.detail.su_remove_happy", async ({ page }) => {
+    const { fixtures } = await seedAuth(page, "admin", false, { serviceUserMember: true });
+    await page.goto(`/permission/groups/${fixtures.group_id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await waitForHydrated(page);
+    await openRoleActions(page, "member", fixtures.foreign_service_user_handle);
+    await page.getByRole("menuitem", { name: /^Remove$/i }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible({ timeout: 15_000 });
+    await dialog.getByRole("button", { name: /^Remove$/i }).click();
+    await expect(dialog).toHaveCount(0, { timeout: 60_000 });
+    await expect
+      .poll(async () => rolePrincipalPresent(page, "member", fixtures.foreign_service_user_handle), {
+        timeout: 60_000,
+      })
+      .toBe(false);
+  });
+
   test("e2e.group.detail.add_owner", async ({ page }) => {
     const { fixtures } = await seedAuth(page, "admin");
     await page.goto(`/permission/groups/${fixtures.group_id}`, {

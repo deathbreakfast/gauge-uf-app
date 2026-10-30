@@ -521,6 +521,31 @@ pub async fn remove_group_user(
     Ok(())
 }
 
+/// Remove a service user from group membership.
+#[uf_product_macros::server(permission = "GaugeAdmin")]
+pub async fn remove_group_service_user(
+    /// Unique identifier of the group to remove the member from.
+    group_id: String,
+    /// Unique identifier of the service user to remove from membership.
+    service_user_id: String,
+    /// Fresh TOTP when `group_id` is the Super User group; ignored otherwise.
+    totp_code: String,
+) -> Result<(), ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    let service_user = lepton_identity::service_users::ServiceUserId::parse(&service_user_id)
+        .map_err(|_| ServerFnError::new("Invalid service user id"))?;
+    require_group_membership_step_up(&group_id, &totp_code).await?;
+    gauge::service::remove_group_member_service_user(
+        &group_id,
+        &service_user,
+        &valence_from_ctx(&ctx)?,
+    )
+    .await
+    .map_err(|e| map_service_err("remove group service user", e))?;
+    Ok(())
+}
+
 /// Add a child group relationship to a parent group.
 #[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
 pub async fn add_group_group(

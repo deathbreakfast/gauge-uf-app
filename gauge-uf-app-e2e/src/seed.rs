@@ -8,7 +8,9 @@ use gauge::types::{PermissionRequestCreateInput, PermissionRequestTargetKind};
 use serde::Deserialize;
 use valence::Actor;
 
-use crate::e2e_valence::{e2e_fixtures, e2e_system_valence, store_fixtures, FixtureIds};
+use crate::e2e_valence::{
+    e2e_fixtures, e2e_system_valence, ensure_service_user_member, store_fixtures, FixtureIds,
+};
 use crate::gate_demos::{write_e2e_auth_kind, E2eAuthKind};
 
 #[derive(Debug, Deserialize)]
@@ -30,6 +32,9 @@ pub struct SeedRequest {
     /// `valid` | `expired` | `none` | `other_user` — overrides [`Self::grant_step_up_window`].
     #[serde(default)]
     pub step_up_window: Option<String>,
+    /// When true, make the service user `admin` owns a member of the fixture group.
+    #[serde(default)]
+    pub service_user_member: bool,
 }
 
 fn default_auth() -> String {
@@ -197,6 +202,13 @@ pub async fn seed_data(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
         store_fixtures(fixtures.clone());
+    }
+
+    if body.service_user_member {
+        ensure_service_user_member(&fixtures).await.map_err(|e| {
+            log::error!("seed service_user_member failed: {e:#}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     }
 
     Ok(Json(serde_json::json!({
