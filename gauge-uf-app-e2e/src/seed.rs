@@ -213,6 +213,8 @@ pub async fn seed_data(
             "pending_perm_request_id": fixtures.pending_perm_request_id,
             "pending_group_request_id": fixtures.pending_group_request_id,
             "child_group_id": fixtures.child_group_id,
+            "service_user_handle": fixtures.service_user_handle,
+            "foreign_service_user_handle": fixtures.foreign_service_user_handle,
         }
     })))
 }
@@ -259,6 +261,7 @@ async fn refresh_pending_requests(mut fixtures: FixtureIds) -> anyhow::Result<Fi
             target_kind: PermissionRequestTargetKind::Permission,
             target_id: fixtures.permission_id.clone(),
             reason: format!("e2e refresh perm {}", chrono::Utc::now().timestamp_millis()),
+            on_behalf_of: None,
         },
         &requestor_ctx,
     )
@@ -273,6 +276,7 @@ async fn refresh_pending_requests(mut fixtures: FixtureIds) -> anyhow::Result<Fi
                 "e2e refresh group {}",
                 chrono::Utc::now().timestamp_millis()
             ),
+            on_behalf_of: None,
         },
         &requestor_ctx,
     )

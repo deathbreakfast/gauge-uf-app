@@ -50,6 +50,8 @@ uf-product-macros = { workspace = true }
 higgs = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 gauge = { workspace = true, default-features = false }
+# SSR only: names the service user status when listing the caller's service users.
+lepton = { workspace = true, default-features = false, optional = true }
 record-history = { workspace = true, default-features = false, optional = true }
 record-history-leptos = { workspace = true, default-features = false }
 chrono = { workspace = true, optional = true }
@@ -93,6 +95,8 @@ ssr = [
     "lepton-auth-ui/ssr",
     "uf-search-core/ssr",
     "gauge/ssr",
+    "dep:lepton",
+    "lepton/ssr",
     "valence/mem",
     "valence/sqlite",
     "orbital-paging/ssr",

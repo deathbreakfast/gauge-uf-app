@@ -17,6 +17,10 @@ export type SeedFixtures = {
   pending_perm_request_id: string;
   pending_group_request_id: string;
   child_group_id: string;
+  /** Active service user owned by `requestor`. */
+  service_user_handle: string;
+  /** Active service user owned by `admin`. */
+  foreign_service_user_handle: string;
 };
 
 /** All Permission Help inventory keys — seed as seen so non-tour specs stay quiet. */

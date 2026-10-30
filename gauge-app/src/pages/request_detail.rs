@@ -74,6 +74,11 @@ pub fn RequestDetailPage() -> impl IntoView {
                                             <Caption1>
                                                 {format!("Requestor: {}", row.requestor_user_id)}
                                             </Caption1>
+                                            {row.on_behalf_of.as_ref().map(|principal| view! {
+                                                <div id="gauge-request-detail-for">
+                                                <Caption1>{format!("For: @{}", principal.label)}</Caption1>
+                                                </div>
+                                            })}
                                             <Caption1>
                                                 {format!("Status: {}", status_label(&row.status))}
                                             </Caption1>

@@ -39,6 +39,10 @@ pub struct FixtureIds {
     pub pending_perm_request_id: String,
     pub pending_group_request_id: String,
     pub child_group_id: String,
+    /// Active service user owned by `requestor`.
+    pub service_user_handle: String,
+    /// Active service user owned by `admin`, which `requestor` may not request for.
+    pub foreign_service_user_handle: String,
 }
 
 static E2E_STATE: OnceLock<Arc<E2eState>> = OnceLock::new();
@@ -86,6 +90,40 @@ async fn seed_user(id: &str, email_verified: bool, valence: &Valence) {
     lepton::generated::User::upsert(id, user, valence, valence::use_!(r#"**Test:** Fixture **User** save for `e2e_valence` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."#))
         .await
         .expect("upsert user");
+}
+
+/// Handle of the service user `requestor` owns.
+const REQUESTOR_SERVICE_USER: &str = "requestor-agent";
+/// Handle of the service user `admin` owns.
+const ADMIN_SERVICE_USER: &str = "admin-agent";
+
+/// Store an active service user owned by `owner`, the way lepton's create path shapes the row.
+/// Written directly so `owner` needn't join "Service user creators" just to own one. `id` must be
+/// a canonical UUID, as lepton's `ServiceUserId` requires.
+async fn seed_service_user(system: &Valence, owner: &str, id: &str, handle: &str) {
+    use lepton::generated::{
+        ServiceUserAccount, ServiceUserAccountOwnerKind, ServiceUserAccountStatus,
+    };
+
+    let owner_ref = RecordId::new("user", owner);
+    let now = Utc::now();
+    let row = ServiceUserAccount::new(
+        Some(owner_ref.clone()),
+        ServiceUserAccountOwnerKind::User,
+        Some(owner_ref),
+        handle.to_string(),
+        handle.replace('-', ""),
+        format!("{owner}'s agent"),
+        None,
+        ServiceUserAccountStatus::Active,
+        None,
+        now,
+        now,
+    )
+    .expect("service user row");
+    ServiceUserAccount::upsert(id, row, system, valence::use_!(r#"**Test:** Fixture **service user** save for `e2e_valence` so the suite can request access on its behalf. CI and developers running the suite only."#))
+        .await
+        .expect("seed service user");
 }
 
 async fn seed_super_user_with_member(system: &Valence, member_user_id: &str) {
@@ -225,6 +263,28 @@ pub async fn init_e2e_valence() {
     sync_permission_manifests(&system, &[gauge_admin_manifest()])
         .await
         .expect("sync GaugeAdmin manifest");
+    // The "Service user creators" group, which `requestor` is not a member of.
+    let seeded = gauge::service_users::seed_service_user_permissions(&system)
+        .await
+        .expect("seed service user permissions");
+    log::debug!("seeded service user permissions: {seeded:?}");
+    if gauge::service_users::install_gauge_service_user_gate().is_err() {
+        log::debug!("service user gate already installed");
+    }
+    seed_service_user(
+        &system,
+        "requestor",
+        "5e2e0000-0000-4000-8000-000000000001",
+        REQUESTOR_SERVICE_USER,
+    )
+    .await;
+    seed_service_user(
+        &system,
+        "admin",
+        "5e2e0000-0000-4000-8000-000000000002",
+        ADMIN_SERVICE_USER,
+    )
+    .await;
 
     let admin_ctx = system.with_actor(Actor::User {
         user_id: "admin".to_string(),
@@ -325,6 +385,7 @@ async fn bootstrap_fixtures(system: &Valence, admin_ctx: &Valence) -> anyhow::Re
             target_kind: PermissionRequestTargetKind::Permission,
             target_id: permission_id.clone(),
             reason: "need deploy access for e2e".into(),
+            on_behalf_of: None,
         },
         &requestor_ctx,
     )
@@ -334,6 +395,7 @@ async fn bootstrap_fixtures(system: &Valence, admin_ctx: &Valence) -> anyhow::Re
             target_kind: PermissionRequestTargetKind::Group,
             target_id: group_id.clone(),
             reason: "need group membership for e2e".into(),
+            on_behalf_of: None,
         },
         &requestor_ctx,
     )
@@ -349,6 +411,8 @@ async fn bootstrap_fixtures(system: &Valence, admin_ctx: &Valence) -> anyhow::Re
         pending_perm_request_id: pending_perm.id.clone(),
         pending_group_request_id: pending_group.id.clone(),
         child_group_id: record_pk_id(child.id()),
+        service_user_handle: REQUESTOR_SERVICE_USER.into(),
+        foreign_service_user_handle: ADMIN_SERVICE_USER.into(),
     })
 }
 

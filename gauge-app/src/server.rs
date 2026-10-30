@@ -758,6 +758,36 @@ pub async fn create_permission_request(
         .map_err(|e| map_service_err("create permission request", e))
 }
 
+/// One of the caller's active service users, as offered by the Request Access dialog's
+/// "Request for" choice.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServiceUserOption {
+    /// Handle, such as `spectra-agent`; submitted as the request's `on_behalf_of`.
+    pub handle: String,
+    /// Name shown next to the handle.
+    pub display_name: String,
+}
+
+/// List the current actor's active service users, oldest first.
+#[uf_product_macros::server]
+pub async fn list_my_active_service_users() -> Result<Vec<ServiceUserOption>, ServerFnError> {
+    use lepton::generated::ServiceUserAccountStatus;
+
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    let service_users = lepton_auth::service_users::list_my_service_users(&valence_from_ctx(&ctx)?)
+        .await
+        .map_err(|e| map_service_err("list my service users", e))?;
+    Ok(service_users
+        .into_iter()
+        .filter(|su| su.status() == &ServiceUserAccountStatus::Active)
+        .map(|su| ServiceUserOption {
+            handle: su.handle().clone(),
+            display_name: su.display_name().clone(),
+        })
+        .collect())
+}
+
 /// List permission requests created by the current actor.
 #[uf_product_macros::server]
 pub async fn list_my_permission_requests() -> Result<Vec<PermissionRequestRowDto>, ServerFnError> {
