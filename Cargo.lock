@@ -1457,6 +1457,7 @@ dependencies = [
  "higgs-identity",
  "icondata",
  "lepton",
+ "lepton-auth",
  "leptos",
  "leptos_axum",
  "leptos_meta",
