@@ -1,8 +1,8 @@
 use gauge::search_sources::PermissionSearchSourceId;
-use gauge::types::{PermissionRequestCreateInput, PermissionRequestTargetKind, PrincipalKind};
+use gauge::types::{PermissionRequestTargetKind, PrincipalKind};
 use leptos::prelude::*;
 use leptos::task::spawn_local_scoped;
-use leptos_router::hooks::{use_navigate, use_params_map};
+use leptos_router::hooks::{use_navigate, use_params_map, use_query_map};
 use leptos_router::NavigateOptions;
 use uf_integrations::SearchSourcePicker;
 use uf_product::components::{
@@ -17,11 +17,14 @@ use uf_product::primitives::{
 use uf_search_core::{SearchSourceItem, SearchSourceKey};
 
 use crate::pages::shared::history_dialog::HistoryDialog;
+use crate::pages::shared::request_access::{
+    requested_for_handle, wants_request_dialog, RequestAccessDialog,
+};
 use crate::pages::step_up::spawn_with_step_up;
 use crate::server::{
-    add_permission_group, add_permission_user, create_permission_request, delete_permission,
-    get_permission, list_domains, remove_permission_group, remove_permission_user,
-    search_principals, update_permission, UpdatePermissionInput,
+    add_permission_group, add_permission_user, delete_permission, get_permission, list_domains,
+    remove_permission_group, remove_permission_user, search_principals, update_permission,
+    UpdatePermissionInput,
 };
 
 /// Permission detail/edit page: name/description/owners/domain editing, allow-list
@@ -53,11 +56,20 @@ pub fn PermissionDetailPage() -> impl IntoView {
     let confirm_remove_open = RwSignal::new(false);
     let pending_remove = RwSignal::new(None::<(String, bool, String)>);
     let request_dialog_open = RwSignal::new(false);
-    let request_reason = RwSignal::new(String::new());
-    let request_error = RwSignal::new(None::<String>);
+    let query = use_query_map();
+    let preselect_for = Signal::derive(move || requested_for_handle(&query.read()));
+    // `?request=1` opens Request Access once, when the actor may request.
+    let request_auto_opened = StoredValue::new(false);
 
     Effect::new(move |_| {
         if let Some(Ok(Some(row))) = detail.get() {
+            if row.can_request_access
+                && !request_auto_opened.get_value()
+                && wants_request_dialog(&query.read_untracked())
+            {
+                request_auto_opened.set_value(true);
+                request_dialog_open.set(true);
+            }
             name.set(row.name);
             description.set(row.description);
             owners_group_id.set(row.owners_group_id);
@@ -418,64 +430,13 @@ pub fn PermissionDetailPage() -> impl IntoView {
                                             </DialogBody>
                                         </DialogSurface>
                                     </Dialog>
-                                    <Dialog open=request_dialog_open>
-                                        <DialogSurface>
-                                            <DialogBody>
-                                                <DialogTitle>"Request Access"</DialogTitle>
-                                                <DialogContent>
-                                                    <Flex vertical=true gap=FlexGap::Small>
-                                                        <Field label="Reason">
-                                                            <Textarea bind=request_reason />
-                                                        </Field>
-                                                        <Show when=move || request_error.get().is_some()>
-                                                            <MessageBar intent=MessageBarIntent::Error>
-                                                                {move || request_error.get().unwrap_or_default()}
-                                                            </MessageBar>
-                                                        </Show>
-                                                    </Flex>
-                                                </DialogContent>
-                                                <DialogActions>
-                                                    <Button
-                                                        appearance=ButtonAppearance::Secondary
-                                                        on_click=Callback::new(move |_| {
-                                                            request_dialog_open.set(false);
-                                                            request_error.set(None);
-                                                        })
-                                                    >
-                                                        "Cancel"
-                                                    </Button>
-                                                    <Button
-                                                        appearance=ButtonAppearance::Primary
-                                                        on_click=Callback::new(move |_| {
-                                                            let reason = request_reason.get();
-                                                            if reason.trim().is_empty() {
-                                                                request_error.set(Some("Reason is required.".to_string()));
-                                                                return;
-                                                            }
-                                                            let input = PermissionRequestCreateInput {
-                                                                target_kind: PermissionRequestTargetKind::Permission,
-                                                                target_id: permission_id.get(),
-                                                                reason,
-                                                            };
-                                                            spawn_local_scoped(async move {
-                                                                match create_permission_request(input).await {
-                                                                    Ok(_) => {
-                                                                        request_dialog_open.set(false);
-                                                                        request_error.set(None);
-                                                                        request_reason.set(String::new());
-                                                                        refresh.update(|n| *n += 1);
-                                                                    }
-                                                                    Err(err) => request_error.set(Some(err.to_string())),
-                                                                }
-                                                            });
-                                                        })
-                                                    >
-                                                        "Submit Request"
-                                                    </Button>
-                                                </DialogActions>
-                                            </DialogBody>
-                                        </DialogSurface>
-                                    </Dialog>
+                                    <RequestAccessDialog
+                                        open=request_dialog_open
+                                        target_kind=PermissionRequestTargetKind::Permission
+                                        target_id=permission_id
+                                        preselect_for=preselect_for
+                                        on_submitted=Callback::new(move |()| refresh.update(|n| *n += 1))
+                                    />
                                 </Flex>
                             }.into_any()
                         }

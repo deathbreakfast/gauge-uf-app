@@ -39,9 +39,154 @@ pub struct FixtureIds {
     pub pending_perm_request_id: String,
     pub pending_group_request_id: String,
     pub child_group_id: String,
+    /// Active service user owned by `requestor`.
+    pub service_user_handle: String,
+    /// Active service user owned by `admin`, which `requestor` may not request for.
+    pub foreign_service_user_handle: String,
 }
 
 static E2E_STATE: OnceLock<Arc<E2eState>> = OnceLock::new();
+
+/// The in-memory backend, except that declaring a unique index succeeds without enforcing it.
+///
+/// `InMemoryBackend` refuses unique indexes, and lepton's `service_user_account` declares one on
+/// `handle_key`. Lepton's create path already probes for a taken handle before inserting, which
+/// is enough for the fixed fixture handles here. Everything else goes straight through.
+#[derive(Debug)]
+struct UniqueTolerantMemBackend(InMemoryBackend);
+
+#[async_trait::async_trait]
+impl DatabaseBackend for UniqueTolerantMemBackend {
+    fn engine_id(&self) -> &'static str {
+        self.0.engine_id()
+    }
+    fn capabilities(&self) -> valence::BackendCapabilities {
+        self.0.capabilities()
+    }
+    fn as_any_local(&self) -> Option<&dyn std::any::Any> {
+        self.0.as_any_local()
+    }
+    async fn use_namespace(&self, ns: &str, db_name: &str) -> valence::Result<()> {
+        self.0.use_namespace(ns, db_name).await
+    }
+    async fn execute_compiled_query(
+        &self,
+        compiled: &valence::CompiledQuery,
+    ) -> valence::Result<Vec<serde_json::Value>> {
+        self.0.execute_compiled_query(compiled).await
+    }
+    async fn ensure_schemaless_table(&self, table: &str) -> valence::Result<()> {
+        self.0.ensure_schemaless_table(table).await
+    }
+    async fn inspect_typed_layout(
+        &self,
+        table: &str,
+    ) -> valence::Result<Option<valence::storage_layout::StorageLayout>> {
+        self.0.inspect_typed_layout(table).await
+    }
+    async fn ensure_typed_table(
+        &self,
+        layout: &valence::storage_layout::StorageLayout,
+    ) -> valence::Result<()> {
+        self.0.ensure_typed_table(layout).await
+    }
+    async fn sync_typed_table(
+        &self,
+        layout: &valence::storage_layout::StorageLayout,
+    ) -> valence::Result<()> {
+        self.0.sync_typed_table(layout).await
+    }
+    async fn read_schema_version(&self, table: &str) -> valence::Result<Option<String>> {
+        self.0.read_schema_version(table).await
+    }
+    async fn write_schema_version(&self, table: &str, version: &str) -> valence::Result<()> {
+        self.0.write_schema_version(table, version).await
+    }
+    async fn get_record(
+        &self,
+        table: &str,
+        id: &str,
+    ) -> valence::Result<Option<serde_json::Value>> {
+        self.0.get_record(table, id).await
+    }
+    async fn create_record(
+        &self,
+        table: &str,
+        content: serde_json::Value,
+    ) -> valence::Result<serde_json::Value> {
+        self.0.create_record(table, content).await
+    }
+    async fn update_record(
+        &self,
+        table: &str,
+        id: &str,
+        content: serde_json::Value,
+    ) -> valence::Result<serde_json::Value> {
+        self.0.update_record(table, id, content).await
+    }
+    async fn merge_record(
+        &self,
+        table: &str,
+        id: &str,
+        patch: serde_json::Value,
+    ) -> valence::Result<serde_json::Value> {
+        self.0.merge_record(table, id, patch).await
+    }
+    async fn upsert_record(
+        &self,
+        table: &str,
+        id: &str,
+        content: serde_json::Value,
+    ) -> valence::Result<serde_json::Value> {
+        self.0.upsert_record(table, id, content).await
+    }
+    async fn delete_record(&self, table: &str, id: &str) -> valence::Result<()> {
+        self.0.delete_record(table, id).await
+    }
+    async fn relate_edge(
+        &self,
+        from: &RecordId,
+        edge_table: &str,
+        to: &RecordId,
+    ) -> valence::Result<()> {
+        self.0.relate_edge(from, edge_table, to).await
+    }
+    async fn unrelate_edge(
+        &self,
+        from: &RecordId,
+        edge_table: &str,
+        to: &RecordId,
+    ) -> valence::Result<()> {
+        self.0.unrelate_edge(from, edge_table, to).await
+    }
+    async fn get_edge_targets(
+        &self,
+        from: &RecordId,
+        edge_table: &str,
+    ) -> valence::Result<Vec<RecordId>> {
+        self.0.get_edge_targets(from, edge_table).await
+    }
+    async fn get_edge_sources(
+        &self,
+        to: &RecordId,
+        edge_table: &str,
+    ) -> valence::Result<Vec<RecordId>> {
+        self.0.get_edge_sources(to, edge_table).await
+    }
+    async fn define_unique_index(&self, _table: &str, _field: &str) -> valence::Result<()> {
+        Ok(())
+    }
+    fn ttl_capability(&self) -> valence::ttl::BackendTtlCapability {
+        self.0.ttl_capability()
+    }
+    async fn apply_ttl_policy(
+        &self,
+        table: &str,
+        policy: &valence::ttl::SchemaTtlPolicy,
+    ) -> valence::Result<()> {
+        self.0.apply_ttl_policy(table, policy).await
+    }
+}
 
 struct HiggsFactory(RouterValenceFactory);
 
@@ -86,6 +231,48 @@ async fn seed_user(id: &str, email_verified: bool, valence: &Valence) {
     lepton::generated::User::upsert(id, user, valence, valence::use_!(r#"**Test:** Fixture **User** save for `e2e_valence` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."#))
         .await
         .expect("upsert user");
+}
+
+/// Handle of the service user `requestor` owns.
+const REQUESTOR_SERVICE_USER: &str = "requestor-agent";
+/// Handle of the service user `admin` owns.
+const ADMIN_SERVICE_USER: &str = "admin-agent";
+
+/// Create one active service user for `requestor` and one for `admin` through lepton, as
+/// their owners. Runs while `admin` is still a Super User: `admin` may create through that, and
+/// `requestor` joins "Service user creators" only for its create, so the open-by-name specs
+/// still see a non-member.
+async fn seed_service_users(system: &Valence) {
+    use gauge::service_users::SERVICE_USER_CREATORS_GROUP_ID;
+    use lepton_auth::service_users::{create_service_user, NewServiceUser};
+
+    let admin_ctx = system.with_actor(Actor::User {
+        user_id: "admin".to_string(),
+    });
+    let requestor_ctx = system.with_actor(Actor::User {
+        user_id: "requestor".to_string(),
+    });
+    service::add_group_member_user(SERVICE_USER_CREATORS_GROUP_ID, "requestor", &admin_ctx)
+        .await
+        .expect("requestor joins service user creators");
+    for (owner_ctx, handle, display_name) in [
+        (&requestor_ctx, REQUESTOR_SERVICE_USER, "Requestor's agent"),
+        (&admin_ctx, ADMIN_SERVICE_USER, "Admin's agent"),
+    ] {
+        create_service_user(
+            owner_ctx,
+            NewServiceUser {
+                handle,
+                display_name,
+                description: None,
+            },
+        )
+        .await
+        .unwrap_or_else(|e| panic!("create service user {handle}: {e}"));
+    }
+    service::remove_group_member_user(SERVICE_USER_CREATORS_GROUP_ID, "requestor", &admin_ctx)
+        .await
+        .expect("requestor leaves service user creators");
 }
 
 async fn seed_super_user_with_member(system: &Valence, member_user_id: &str) {
@@ -188,7 +375,8 @@ pub async fn init_e2e_valence() {
 
     prepare_env();
 
-    let backend: Arc<dyn DatabaseBackend> = Arc::new(InMemoryBackend::new());
+    let backend: Arc<dyn DatabaseBackend> =
+        Arc::new(UniqueTolerantMemBackend(InMemoryBackend::new()));
     let mut router = DatabaseRouter::new();
     register_backend_logical_names(
         &mut router,
@@ -225,6 +413,15 @@ pub async fn init_e2e_valence() {
     sync_permission_manifests(&system, &[gauge_admin_manifest()])
         .await
         .expect("sync GaugeAdmin manifest");
+    // The "Service user creators" group, which `requestor` is not a member of.
+    let seeded = gauge::service_users::seed_service_user_permissions(&system)
+        .await
+        .expect("seed service user permissions");
+    log::debug!("seeded service user permissions: {seeded:?}");
+    if gauge::service_users::install_gauge_service_user_gate().is_err() {
+        log::debug!("service user gate already installed");
+    }
+    seed_service_users(&system).await;
 
     let admin_ctx = system.with_actor(Actor::User {
         user_id: "admin".to_string(),
@@ -325,6 +522,7 @@ async fn bootstrap_fixtures(system: &Valence, admin_ctx: &Valence) -> anyhow::Re
             target_kind: PermissionRequestTargetKind::Permission,
             target_id: permission_id.clone(),
             reason: "need deploy access for e2e".into(),
+            on_behalf_of: None,
         },
         &requestor_ctx,
     )
@@ -334,6 +532,7 @@ async fn bootstrap_fixtures(system: &Valence, admin_ctx: &Valence) -> anyhow::Re
             target_kind: PermissionRequestTargetKind::Group,
             target_id: group_id.clone(),
             reason: "need group membership for e2e".into(),
+            on_behalf_of: None,
         },
         &requestor_ctx,
     )
@@ -349,6 +548,8 @@ async fn bootstrap_fixtures(system: &Valence, admin_ctx: &Valence) -> anyhow::Re
         pending_perm_request_id: pending_perm.id.clone(),
         pending_group_request_id: pending_group.id.clone(),
         child_group_id: record_pk_id(child.id()),
+        service_user_handle: REQUESTOR_SERVICE_USER.into(),
+        foreign_service_user_handle: ADMIN_SERVICE_USER.into(),
     })
 }
 

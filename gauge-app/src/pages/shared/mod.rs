@@ -2,3 +2,7 @@
 
 /// [`history_dialog::HistoryDialog`] — Show History dialog with Record History timeline.
 pub mod history_dialog;
+/// [`query_state::use_query_signal`] / [`query_state::use_index_search`] — list state kept in the URL query and the `?name=` lookup.
+pub mod query_state;
+/// [`request_access::RequestAccessDialog`] — Request Access dialog and its `?request=` / `?for=` URL helpers.
+pub mod request_access;
