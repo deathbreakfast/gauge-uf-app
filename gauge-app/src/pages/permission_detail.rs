@@ -11,12 +11,13 @@ use uf_product::components::{
 use uf_product::components::{ContentContainer, SpacingSize, Title3};
 use uf_product::primitives::{
     Button, ButtonAppearance, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface,
-    DialogTitle, Field, Flex, FlexAlign, FlexGap, FlexJustify, Input, Menu, MenuItem, MenuTrigger,
-    MessageBar, MessageBarIntent, Select, SelectAppearance, SkeletonItem, Textarea,
+    DialogTitle, Field, Flex, FlexAlign, FlexGap, FlexJustify, Icon, Input, Menu, MenuItem,
+    MenuTrigger, MessageBar, MessageBarIntent, Select, SelectAppearance, SkeletonItem, Textarea,
 };
 use uf_search_core::{SearchSourceItem, SearchSourceKey};
 
 use crate::pages::shared::history_dialog::HistoryDialog;
+use crate::pages::shared::principal;
 use crate::pages::shared::request_access::{
     requested_for_handle, wants_request_dialog, RequestAccessDialog,
 };
@@ -333,15 +334,21 @@ pub fn PermissionDetailPage() -> impl IntoView {
                                                             {
                                                                 let principal_label_text = principal.label.clone();
                                                                 let principal_label_menu = principal.label.clone();
-                                                                let principal_id_text = principal.id.clone();
                                                                 let principal_id_action = principal.id.clone();
                                                                 let is_group = principal.kind == PrincipalKind::Group;
-                                                                let principal_kind_label = if is_group { "group" } else { "user" };
+                                                                // Service users hold permissions through groups only, so no row action.
+                                                                let removable = principal.kind != PrincipalKind::ServiceUser;
+                                                                let kind_icon = principal::kind_icon(&principal.kind);
+                                                                let detail_line = principal::detail_line(&principal);
                                                                 view! {
-                                                                    <Flex vertical=true gap=FlexGap::Small>
-                                                                        <Body1>{principal_label_text}</Body1>
-                                                                        <Caption1>{format!("{principal_kind_label} ({principal_id_text})")}</Caption1>
+                                                                    <Flex gap=FlexGap::Small align=FlexAlign::Center>
+                                                                        <Icon icon=kind_icon />
+                                                                        <Flex vertical=true gap=FlexGap::Small>
+                                                                            <Body1>{principal_label_text}</Body1>
+                                                                            <Caption1>{detail_line}</Caption1>
+                                                                        </Flex>
                                                                     </Flex>
+                                                                    {removable.then(|| view! {
                                                                     <Menu
                                                                         on_select={
                                                                             let principal_label = principal_label_menu;
@@ -366,6 +373,7 @@ pub fn PermissionDetailPage() -> impl IntoView {
                                                                         </MenuTrigger>
                                                                         <MenuItem value="remove">"Remove"</MenuItem>
                                                                     </Menu>
+                                                                    })}
                                                                 }
                                                             }
                                                             </Flex>

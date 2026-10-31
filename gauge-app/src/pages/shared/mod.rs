@@ -6,3 +6,6 @@ pub mod history_dialog;
 pub mod query_state;
 /// [`request_access::RequestAccessDialog`] — Request Access dialog and its `?request=` / `?for=` URL helpers.
 pub mod request_access;
+
+/// [`principal`] — kind label and icon for user, group and service-user rows.
+pub mod principal;

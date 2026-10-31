@@ -11,20 +11,21 @@ use uf_product::components::{
 use uf_product::components::{ContentContainer, SpacingSize, Title3};
 use uf_product::primitives::{
     Button, ButtonAppearance, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface,
-    DialogTitle, Field, Flex, FlexAlign, FlexGap, FlexJustify, Input, Menu, MenuItem, MenuTrigger,
-    MessageBar, MessageBarIntent, SkeletonItem, Textarea,
+    DialogTitle, Field, Flex, FlexAlign, FlexGap, FlexJustify, Icon, Input, Menu, MenuItem,
+    MenuTrigger, MessageBar, MessageBarIntent, SkeletonItem, Textarea,
 };
 use uf_search_core::{SearchSourceItem, SearchSourceKey};
 
 use crate::pages::shared::history_dialog::HistoryDialog;
+use crate::pages::shared::principal;
 use crate::pages::shared::request_access::{
     requested_for_handle, wants_request_dialog, RequestAccessDialog,
 };
 use crate::pages::step_up::{spawn_with_fresh_totp, spawn_with_step_up};
 use crate::server::{
     add_group_group, add_group_owner_user, add_group_user, delete_group, get_group,
-    remove_group_group, remove_group_owner_user, remove_group_user, search_principals,
-    update_group, UpdateGroupInput, SUPER_USER_GROUP_ID,
+    remove_group_group, remove_group_owner_user, remove_group_service_user, remove_group_user,
+    search_principals, update_group, UpdateGroupInput, SUPER_USER_GROUP_ID,
 };
 
 /// Group detail/edit page: owners and members pickers, name/description editing,
@@ -54,7 +55,7 @@ pub fn GroupDetailPage() -> impl IntoView {
     let picker_error = RwSignal::new(None::<String>);
     let owner_picker_error = RwSignal::new(None::<String>);
     let confirm_remove_open = RwSignal::new(false);
-    let pending_remove = RwSignal::new(None::<(String, bool, String)>);
+    let pending_remove = RwSignal::new(None::<(String, PrincipalKind, String)>);
     let confirm_remove_owner_open = RwSignal::new(false);
     let pending_remove_owner = RwSignal::new(None::<(String, String)>);
     let request_dialog_open = RwSignal::new(false);
@@ -423,14 +424,17 @@ pub fn GroupDetailPage() -> impl IntoView {
                                                             {
                                                                 let principal_label_text = principal.label.clone();
                                                                 let principal_label_menu = principal.label.clone();
-                                                                let principal_id_text = principal.id.clone();
                                                                 let principal_id_action = principal.id.clone();
-                                                                let is_group = principal.kind == PrincipalKind::Group;
-                                                                let principal_kind_label = if is_group { "group" } else { "user" };
+                                                                let kind = principal.kind.clone();
+                                                                let kind_icon = principal::kind_icon(&kind);
+                                                                let detail_line = principal::detail_line(&principal);
                                                                 view! {
-                                                                    <Flex vertical=true gap=FlexGap::Small>
-                                                                        <Body1>{principal_label_text}</Body1>
-                                                                        <Caption1>{format!("{principal_kind_label} ({principal_id_text})")}</Caption1>
+                                                                    <Flex gap=FlexGap::Small align=FlexAlign::Center>
+                                                                        <Icon icon=kind_icon />
+                                                                        <Flex vertical=true gap=FlexGap::Small>
+                                                                            <Body1>{principal_label_text}</Body1>
+                                                                            <Caption1>{detail_line}</Caption1>
+                                                                        </Flex>
                                                                     </Flex>
                                                                     <Menu
                                                                         on_select={
@@ -439,7 +443,7 @@ pub fn GroupDetailPage() -> impl IntoView {
                                                                                 if action == "remove" {
                                                                                     pending_remove.set(Some((
                                                                                         principal_id_action.clone(),
-                                                                                        is_group,
+                                                                                        kind.clone(),
                                                                                         principal_label.clone(),
                                                                                     )));
                                                                                     confirm_remove_open.set(true);
@@ -496,12 +500,14 @@ pub fn GroupDetailPage() -> impl IntoView {
                                                         on_click=Callback::new(move |_| {
                                                             let pending = pending_remove.get();
                                                             let gid = group_id.get();
-                                                            if let Some((principal_id, is_group, _)) = pending {
+                                                            if let Some((principal_id, kind, _)) = pending {
                                                                 spawn_local_scoped(async move {
-                                                                    let result = if is_group {
-                                                                        remove_group_group(gid, principal_id).await
-                                                                    } else {
-                                                                        remove_group_user(gid, principal_id, String::new()).await
+                                                                    let result = match kind {
+                                                                        PrincipalKind::Group => remove_group_group(gid, principal_id).await,
+                                                                        PrincipalKind::ServiceUser => {
+                                                                            remove_group_service_user(gid, principal_id, String::new()).await
+                                                                        }
+                                                                        _ => remove_group_user(gid, principal_id, String::new()).await,
                                                                     };
                                                                     if let Err(err) = result {
                                                                         error.set(Some(err.to_string()));

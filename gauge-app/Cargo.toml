@@ -48,6 +48,7 @@ orbital-paging = { workspace = true }
 orbital-history = { workspace = true, default-features = false }
 uf-product-macros = { workspace = true }
 higgs = { workspace = true, optional = true }
+lepton-identity = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 gauge = { workspace = true, default-features = false }
 # SSR only: names the service user status when listing the caller's service users.
@@ -97,6 +98,7 @@ ssr = [
     "gauge/ssr",
     "dep:lepton",
     "lepton/ssr",
+    "dep:lepton-identity",
     "valence/mem",
     "valence/sqlite",
     "orbital-paging/ssr",

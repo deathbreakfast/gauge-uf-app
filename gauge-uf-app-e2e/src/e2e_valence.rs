@@ -235,6 +235,22 @@ async fn seed_user(id: &str, email_verified: bool, valence: &Valence) {
 
 /// Handle of the service user `requestor` owns.
 const REQUESTOR_SERVICE_USER: &str = "requestor-agent";
+/// Make the service user `admin` owns a member of the fixture group. Safe to repeat.
+pub async fn ensure_service_user_member(fixtures: &FixtureIds) -> anyhow::Result<()> {
+    use lepton_identity::service_users::ServiceUserId;
+
+    let admin_ctx = e2e_system_valence().with_actor(Actor::User {
+        user_id: "admin".to_string(),
+    });
+    let owned = lepton_auth::service_users::list_my_service_users(&admin_ctx).await?;
+    let account = owned
+        .iter()
+        .find(|su| *su.handle() == fixtures.foreign_service_user_handle)
+        .ok_or_else(|| anyhow::anyhow!("fixture service user not found"))?;
+    let service_user = ServiceUserId::parse(&record_pk_id(account.id()))?;
+    service::add_group_member_service_user(&fixtures.group_id, &service_user, &admin_ctx).await
+}
+
 /// Handle of the service user `admin` owns.
 const ADMIN_SERVICE_USER: &str = "admin-agent";
 

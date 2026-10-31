@@ -26,6 +26,7 @@ higgs-identity = { workspace = true, optional = true }
 icondata = { workspace = true }
 lepton = { workspace = true, optional = true }
 lepton-auth = { workspace = true, default-features = false, optional = true }
+lepton-identity = { workspace = true, optional = true }
 leptos = { workspace = true }
 leptos_axum = { workspace = true, optional = true, default-features = true }
 leptos_meta = { workspace = true }
@@ -89,6 +90,7 @@ ssr = [
     "lepton/ssr",
     "dep:lepton-auth",
     "lepton-auth/ssr",
+    "dep:lepton-identity",
 ]
 
 [[bin]]
