@@ -290,8 +290,10 @@ test.describe("e2e.perm.detail", () => {
     await expect(dialog).toHaveCount(0, { timeout: 60_000 });
     await page.goto("/permission/requests", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
-    await expect(page.getByText(/PENDING/i).first()).toBeVisible({ timeout: 60_000 });
-    await expect(page.getByText(/CanDeploy/i).first()).toBeVisible({ timeout: 60_000 });
+    // Scoped to the list: the Status filter also has a "Pending" option.
+    const mine = page.locator("#gauge-requests-mine");
+    await expect(mine.getByText(/PENDING/).first()).toBeVisible({ timeout: 60_000 });
+    await expect(mine.getByText(/CanDeploy/i).first()).toBeVisible({ timeout: 60_000 });
   });
 
   test("e2e.perm.detail.request_empty_reason", async ({ page }) => {

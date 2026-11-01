@@ -17,6 +17,10 @@ export type SeedFixtures = {
   pending_perm_request_id: string;
   pending_group_request_id: string;
   child_group_id: string;
+  /** Active service user owned by `requestor`. */
+  service_user_handle: string;
+  /** Active service user owned by `admin`. */
+  foreign_service_user_handle: string;
 };
 
 /** All Permission Help inventory keys — seed as seen so non-tour specs stay quiet. */
@@ -322,7 +326,12 @@ export async function seedAuth(
   page: Page,
   auth: SeedAuthKind,
   refreshRequests = false,
-  opts?: { listDomainsMode?: "empty" | "error"; help_tour?: boolean },
+  opts?: {
+    listDomainsMode?: "empty" | "error";
+    help_tour?: boolean;
+    /** Add the service user `admin` owns to the fixture group before returning. */
+    serviceUserMember?: boolean;
+  },
 ) {
   const helpTour = opts?.help_tour ?? false;
   await page.addInitScript(
@@ -348,6 +357,7 @@ export async function seedAuth(
       auth,
       refresh_requests: refreshRequests,
       list_domains_mode: opts?.listDomainsMode ?? null,
+      service_user_member: opts?.serviceUserMember ?? false,
     },
   });
   expect(res.ok()).toBeTruthy();

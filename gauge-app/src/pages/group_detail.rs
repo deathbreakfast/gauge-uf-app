@@ -1,8 +1,8 @@
 use gauge::search_sources::PermissionSearchSourceId;
-use gauge::types::{PermissionRequestCreateInput, PermissionRequestTargetKind, PrincipalKind};
+use gauge::types::{PermissionRequestTargetKind, PrincipalKind};
 use leptos::prelude::*;
 use leptos::task::spawn_local_scoped;
-use leptos_router::hooks::{use_navigate, use_params_map};
+use leptos_router::hooks::{use_navigate, use_params_map, use_query_map};
 use leptos_router::NavigateOptions;
 use uf_integrations::SearchSourcePicker;
 use uf_product::components::{
@@ -11,17 +11,21 @@ use uf_product::components::{
 use uf_product::components::{ContentContainer, SpacingSize, Title3};
 use uf_product::primitives::{
     Button, ButtonAppearance, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface,
-    DialogTitle, Field, Flex, FlexAlign, FlexGap, FlexJustify, Input, Menu, MenuItem, MenuTrigger,
-    MessageBar, MessageBarIntent, SkeletonItem, Textarea,
+    DialogTitle, Field, Flex, FlexAlign, FlexGap, FlexJustify, Icon, Input, Menu, MenuItem,
+    MenuTrigger, MessageBar, MessageBarIntent, SkeletonItem, Textarea,
 };
 use uf_search_core::{SearchSourceItem, SearchSourceKey};
 
 use crate::pages::shared::history_dialog::HistoryDialog;
+use crate::pages::shared::principal;
+use crate::pages::shared::request_access::{
+    requested_for_handle, wants_request_dialog, RequestAccessDialog,
+};
 use crate::pages::step_up::{spawn_with_fresh_totp, spawn_with_step_up};
 use crate::server::{
-    add_group_group, add_group_owner_user, add_group_user, create_permission_request, delete_group,
-    get_group, remove_group_group, remove_group_owner_user, remove_group_user, search_principals,
-    update_group, UpdateGroupInput, SUPER_USER_GROUP_ID,
+    add_group_group, add_group_owner_user, add_group_user, delete_group, get_group,
+    remove_group_group, remove_group_owner_user, remove_group_service_user, remove_group_user,
+    search_principals, update_group, UpdateGroupInput, SUPER_USER_GROUP_ID,
 };
 
 /// Group detail/edit page: owners and members pickers, name/description editing,
@@ -51,15 +55,24 @@ pub fn GroupDetailPage() -> impl IntoView {
     let picker_error = RwSignal::new(None::<String>);
     let owner_picker_error = RwSignal::new(None::<String>);
     let confirm_remove_open = RwSignal::new(false);
-    let pending_remove = RwSignal::new(None::<(String, bool, String)>);
+    let pending_remove = RwSignal::new(None::<(String, PrincipalKind, String)>);
     let confirm_remove_owner_open = RwSignal::new(false);
     let pending_remove_owner = RwSignal::new(None::<(String, String)>);
     let request_dialog_open = RwSignal::new(false);
-    let request_reason = RwSignal::new(String::new());
-    let request_error = RwSignal::new(None::<String>);
+    let query = use_query_map();
+    let preselect_for = Signal::derive(move || requested_for_handle(&query.read()));
+    // `?request=1` opens Request Access once, when the actor may request.
+    let request_auto_opened = StoredValue::new(false);
 
     Effect::new(move |_| {
         if let Some(Ok(Some(row))) = detail.get() {
+            if row.can_request_access
+                && !request_auto_opened.get_value()
+                && wants_request_dialog(&query.read_untracked())
+            {
+                request_auto_opened.set_value(true);
+                request_dialog_open.set(true);
+            }
             name.set(row.name);
             description.set(row.description);
         }
@@ -411,14 +424,17 @@ pub fn GroupDetailPage() -> impl IntoView {
                                                             {
                                                                 let principal_label_text = principal.label.clone();
                                                                 let principal_label_menu = principal.label.clone();
-                                                                let principal_id_text = principal.id.clone();
                                                                 let principal_id_action = principal.id.clone();
-                                                                let is_group = principal.kind == PrincipalKind::Group;
-                                                                let principal_kind_label = if is_group { "group" } else { "user" };
+                                                                let kind = principal.kind.clone();
+                                                                let kind_icon = principal::kind_icon(&kind);
+                                                                let detail_line = principal::detail_line(&principal);
                                                                 view! {
-                                                                    <Flex vertical=true gap=FlexGap::Small>
-                                                                        <Body1>{principal_label_text}</Body1>
-                                                                        <Caption1>{format!("{principal_kind_label} ({principal_id_text})")}</Caption1>
+                                                                    <Flex gap=FlexGap::Small align=FlexAlign::Center>
+                                                                        <Icon icon=kind_icon />
+                                                                        <Flex vertical=true gap=FlexGap::Small>
+                                                                            <Body1>{principal_label_text}</Body1>
+                                                                            <Caption1>{detail_line}</Caption1>
+                                                                        </Flex>
                                                                     </Flex>
                                                                     <Menu
                                                                         on_select={
@@ -427,7 +443,7 @@ pub fn GroupDetailPage() -> impl IntoView {
                                                                                 if action == "remove" {
                                                                                     pending_remove.set(Some((
                                                                                         principal_id_action.clone(),
-                                                                                        is_group,
+                                                                                        kind.clone(),
                                                                                         principal_label.clone(),
                                                                                     )));
                                                                                     confirm_remove_open.set(true);
@@ -484,12 +500,14 @@ pub fn GroupDetailPage() -> impl IntoView {
                                                         on_click=Callback::new(move |_| {
                                                             let pending = pending_remove.get();
                                                             let gid = group_id.get();
-                                                            if let Some((principal_id, is_group, _)) = pending {
+                                                            if let Some((principal_id, kind, _)) = pending {
                                                                 spawn_local_scoped(async move {
-                                                                    let result = if is_group {
-                                                                        remove_group_group(gid, principal_id).await
-                                                                    } else {
-                                                                        remove_group_user(gid, principal_id, String::new()).await
+                                                                    let result = match kind {
+                                                                        PrincipalKind::Group => remove_group_group(gid, principal_id).await,
+                                                                        PrincipalKind::ServiceUser => {
+                                                                            remove_group_service_user(gid, principal_id, String::new()).await
+                                                                        }
+                                                                        _ => remove_group_user(gid, principal_id, String::new()).await,
                                                                     };
                                                                     if let Err(err) = result {
                                                                         error.set(Some(err.to_string()));
@@ -557,64 +575,13 @@ pub fn GroupDetailPage() -> impl IntoView {
                                             </DialogBody>
                                         </DialogSurface>
                                     </Dialog>
-                                    <Dialog open=request_dialog_open>
-                                        <DialogSurface>
-                                            <DialogBody>
-                                                <DialogTitle>"Request Access"</DialogTitle>
-                                                <DialogContent>
-                                                    <Flex vertical=true gap=FlexGap::Small>
-                                                        <Field label="Reason">
-                                                            <Textarea bind=request_reason />
-                                                        </Field>
-                                                        <Show when=move || request_error.get().is_some()>
-                                                            <MessageBar intent=MessageBarIntent::Error>
-                                                                {move || request_error.get().unwrap_or_default()}
-                                                            </MessageBar>
-                                                        </Show>
-                                                    </Flex>
-                                                </DialogContent>
-                                                <DialogActions>
-                                                    <Button
-                                                        appearance=ButtonAppearance::Secondary
-                                                        on_click=Callback::new(move |_| {
-                                                            request_dialog_open.set(false);
-                                                            request_error.set(None);
-                                                        })
-                                                    >
-                                                        "Cancel"
-                                                    </Button>
-                                                    <Button
-                                                        appearance=ButtonAppearance::Primary
-                                                        on_click=Callback::new(move |_| {
-                                                            let reason = request_reason.get();
-                                                            if reason.trim().is_empty() {
-                                                                request_error.set(Some("Reason is required.".to_string()));
-                                                                return;
-                                                            }
-                                                            let input = PermissionRequestCreateInput {
-                                                                target_kind: PermissionRequestTargetKind::Group,
-                                                                target_id: group_id.get(),
-                                                                reason,
-                                                            };
-                                                            spawn_local_scoped(async move {
-                                                                match create_permission_request(input).await {
-                                                                    Ok(_) => {
-                                                                        request_dialog_open.set(false);
-                                                                        request_error.set(None);
-                                                                        request_reason.set(String::new());
-                                                                        refresh.update(|n| *n += 1);
-                                                                    }
-                                                                    Err(err) => request_error.set(Some(err.to_string())),
-                                                                }
-                                                            });
-                                                        })
-                                                    >
-                                                        "Submit Request"
-                                                    </Button>
-                                                </DialogActions>
-                                            </DialogBody>
-                                        </DialogSurface>
-                                    </Dialog>
+                                    <RequestAccessDialog
+                                        open=request_dialog_open
+                                        target_kind=PermissionRequestTargetKind::Group
+                                        target_id=group_id
+                                        preselect_for=preselect_for
+                                        on_submitted=Callback::new(move |()| refresh.update(|n| *n += 1))
+                                    />
                                 </Flex>
                             }.into_any()
                         }

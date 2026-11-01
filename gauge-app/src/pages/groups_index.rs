@@ -10,12 +10,17 @@ use uf_product::primitives::{
     MessageBar, MessageBarIntent, SkeletonItem,
 };
 
+use crate::pages::shared::query_state::use_index_search;
 use crate::server::list_groups;
 
 /// Permission group list: search box, create-group entry point, and per-row open links.
 #[component]
 pub fn GroupsIndexPage() -> impl IntoView {
-    let search = RwSignal::new(String::new());
+    let (search, missing) = use_index_search(crate::paths::GROUPS, |name| async move {
+        list_groups(Some(name))
+            .await
+            .map(|rows| rows.into_iter().map(|row| (row.id, row.name)).collect())
+    });
     let groups = Resource::new(
         move || search.get(),
         move |query| async move {
@@ -61,6 +66,13 @@ pub fn GroupsIndexPage() -> impl IntoView {
                                     appearance=InputAppearance::with_placeholder("Search by group name or description")
                                 />
                             </Field>
+                            <Show when=move || missing.get().is_some()>
+                                <div id="gauge-groups-name-missing">
+                                <MessageBar intent=MessageBarIntent::Warning>
+                                    {move || format!("No group is named {}.", missing.get().unwrap_or_default())}
+                                </MessageBar>
+                                </div>
+                            </Show>
                         </Flex>
                     </div>
                 </Card>

@@ -521,6 +521,31 @@ pub async fn remove_group_user(
     Ok(())
 }
 
+/// Remove a service user from group membership.
+#[uf_product_macros::server(permission = "GaugeAdmin")]
+pub async fn remove_group_service_user(
+    /// Unique identifier of the group to remove the member from.
+    group_id: String,
+    /// Unique identifier of the service user to remove from membership.
+    service_user_id: String,
+    /// Fresh TOTP when `group_id` is the Super User group; ignored otherwise.
+    totp_code: String,
+) -> Result<(), ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    let service_user = lepton_identity::service_users::ServiceUserId::parse(&service_user_id)
+        .map_err(|_| ServerFnError::new("Invalid service user id"))?;
+    require_group_membership_step_up(&group_id, &totp_code).await?;
+    gauge::service::remove_group_member_service_user(
+        &group_id,
+        &service_user,
+        &valence_from_ctx(&ctx)?,
+    )
+    .await
+    .map_err(|e| map_service_err("remove group service user", e))?;
+    Ok(())
+}
+
 /// Add a child group relationship to a parent group.
 #[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
 pub async fn add_group_group(
@@ -756,6 +781,36 @@ pub async fn create_permission_request(
     gauge::service::create_permission_request(input, &valence_from_ctx(&ctx)?)
         .await
         .map_err(|e| map_service_err("create permission request", e))
+}
+
+/// One of the caller's active service users, as offered by the Request Access dialog's
+/// "Request for" choice.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServiceUserOption {
+    /// Handle, such as `spectra-agent`; submitted as the request's `on_behalf_of`.
+    pub handle: String,
+    /// Name shown next to the handle.
+    pub display_name: String,
+}
+
+/// List the current actor's active service users, oldest first.
+#[uf_product_macros::server]
+pub async fn list_my_active_service_users() -> Result<Vec<ServiceUserOption>, ServerFnError> {
+    use lepton::generated::ServiceUserAccountStatus;
+
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    let service_users = lepton_auth::service_users::list_my_service_users(&valence_from_ctx(&ctx)?)
+        .await
+        .map_err(|e| map_service_err("list my service users", e))?;
+    Ok(service_users
+        .into_iter()
+        .filter(|su| su.status() == &ServiceUserAccountStatus::Active)
+        .map(|su| ServiceUserOption {
+            handle: su.handle().clone(),
+            display_name: su.display_name().clone(),
+        })
+        .collect())
 }
 
 /// List permission requests created by the current actor.
