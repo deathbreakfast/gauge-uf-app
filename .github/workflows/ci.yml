@@ -103,19 +103,14 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         working-directory: gauge-uf-app-e2e/end2end
         run: npx playwright install-deps chromium
-      - name: cargo leptos build (server then frontend)
+      - name: Playwright e2e (parallel lanes)
+        # run-lanes.sh builds with the same cargo leptos lines (see lanes.conf)
+        # and exits non-zero on a failed build, failed/missing test or dead server.
+        working-directory: gauge-uf-app-e2e/end2end
         env:
           CI: true
-        run: |
-          # Serialize SSR + WASM so the runner does not compile two Orbital graphs at once
-          # (parallel compile OOM/kill → exit 143).
-          cargo leptos build --project gauge-uf-app-e2e --server-only
-          cargo leptos build --project gauge-uf-app-e2e --frontend-only
-      - name: cargo leptos end-to-end
-        env:
-          CI: true
-          PLAYWRIGHT_BASE_URL: http://127.0.0.1:3150
-        run: cargo leptos end-to-end --project gauge-uf-app-e2e
+          LANES: 4
+        run: ./run-lanes.sh
       - name: Upload Playwright artifacts on failure
         if: failure() || cancelled()
         uses: actions/upload-artifact@v6
@@ -124,6 +119,7 @@ jobs:
           path: |
             gauge-uf-app-e2e/end2end/playwright-report/
             gauge-uf-app-e2e/end2end/test-results/
+            gauge-uf-app-e2e/end2end/lanes-out/
           if-no-files-found: ignore
 
   docs:
