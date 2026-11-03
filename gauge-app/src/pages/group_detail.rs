@@ -501,22 +501,49 @@ pub fn GroupDetailPage() -> impl IntoView {
                                                             let pending = pending_remove.get();
                                                             let gid = group_id.get();
                                                             if let Some((principal_id, kind, _)) = pending {
-                                                                spawn_local_scoped(async move {
-                                                                    let result = match kind {
-                                                                        PrincipalKind::Group => remove_group_group(gid, principal_id).await,
-                                                                        PrincipalKind::ServiceUser => {
-                                                                            remove_group_service_user(gid, principal_id, String::new()).await
-                                                                        }
-                                                                        _ => remove_group_user(gid, principal_id, String::new()).await,
-                                                                    };
-                                                                    if let Err(err) = result {
-                                                                        error.set(Some(err.to_string()));
-                                                                    } else {
-                                                                        refresh.update(|n| *n += 1);
-                                                                        confirm_remove_open.set(false);
-                                                                        pending_remove.set(None);
-                                                                    }
+                                                                let finish_ok = Callback::new(move |_: ()| {
+                                                                    refresh.update(|n| *n += 1);
+                                                                    error.set(None);
+                                                                    confirm_remove_open.set(false);
+                                                                    pending_remove.set(None);
                                                                 });
+                                                                match kind {
+                                                                    PrincipalKind::Group => {
+                                                                        spawn_with_step_up(error, finish_ok, move || {
+                                                                            let gid = gid.clone();
+                                                                            let id = principal_id.clone();
+                                                                            async move { remove_group_group(gid, id).await }
+                                                                        });
+                                                                    }
+                                                                    PrincipalKind::ServiceUser if gid == SUPER_USER_GROUP_ID => {
+                                                                        spawn_with_fresh_totp(error, finish_ok, move |totp_code| {
+                                                                            let gid = gid.clone();
+                                                                            let id = principal_id.clone();
+                                                                            async move { remove_group_service_user(gid, id, totp_code).await }
+                                                                        });
+                                                                    }
+                                                                    PrincipalKind::ServiceUser => {
+                                                                        spawn_with_step_up(error, finish_ok, move || {
+                                                                            let gid = gid.clone();
+                                                                            let id = principal_id.clone();
+                                                                            async move { remove_group_service_user(gid, id, String::new()).await }
+                                                                        });
+                                                                    }
+                                                                    _ if gid == SUPER_USER_GROUP_ID => {
+                                                                        spawn_with_fresh_totp(error, finish_ok, move |totp_code| {
+                                                                            let gid = gid.clone();
+                                                                            let id = principal_id.clone();
+                                                                            async move { remove_group_user(gid, id, totp_code).await }
+                                                                        });
+                                                                    }
+                                                                    _ => {
+                                                                        spawn_with_step_up(error, finish_ok, move || {
+                                                                            let gid = gid.clone();
+                                                                            let id = principal_id.clone();
+                                                                            async move { remove_group_user(gid, id, String::new()).await }
+                                                                        });
+                                                                    }
+                                                                }
                                                             }
                                                         })
                                                     >

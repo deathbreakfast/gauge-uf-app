@@ -239,6 +239,30 @@ test.describe("e2e.group.detail", () => {
       .toBe(false);
   });
 
+  test("e2e.group.detail.remove_member_user", async ({ page }) => {
+    const { fixtures } = await seedAuth(page, "admin");
+    await page.goto(`/permission/groups/${fixtures.group_id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await waitForHydrated(page);
+    if (!(await rolePrincipalPresent(page, "member", "requestor"))) {
+      const picker = page.getByPlaceholder(/Search users or groups/i).last();
+      await picker.click();
+      await page.keyboard.type("requestor");
+      await pickSearchResult(page, "requestor");
+      await expectRolePrincipal(page, "member", "requestor");
+    }
+    await openRoleActions(page, "member", "requestor");
+    await page.getByRole("menuitem", { name: /^Remove$/i }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible({ timeout: 15_000 });
+    await dialog.getByRole("button", { name: /^Remove$/i }).click();
+    await expect(dialog).toHaveCount(0, { timeout: 60_000 });
+    await expect
+      .poll(async () => rolePrincipalPresent(page, "member", "requestor"), { timeout: 60_000 })
+      .toBe(false);
+  });
+
   test("e2e.group.detail.add_owner", async ({ page }) => {
     const { fixtures } = await seedAuth(page, "admin");
     await page.goto(`/permission/groups/${fixtures.group_id}`, {
