@@ -371,16 +371,26 @@ test.describe("e2e.perm.detail", () => {
     });
     await waitForHydrated(page);
     await ensureGrantedPrincipal(page, "requestor");
-    await page.getByRole("button", { name: /Show History|View History|History/i }).click();
+    // The dialog loads history once on open and the relation entry can land
+    // after the grant returns, so reopen it until an Added/requestor row shows.
     const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible({ timeout: 30_000 });
-    await expect(dialog.getByTestId("record-history-timeline")).toBeVisible({
-      timeout: 60_000,
-    });
-    const relation = dialog.getByTestId("gauge-history-relation-row").first();
-    await expect(relation).toBeVisible({ timeout: 60_000 });
-    await expect(relation.getByText(/^Added$/)).toBeVisible();
-    await expect(relation.getByText(/requestor/i).first()).toBeVisible();
+    await expect(async () => {
+      await page.getByRole("button", { name: /Show History|View History|History/i }).click();
+      await expect(dialog).toBeVisible({ timeout: 15_000 });
+      await expect(dialog.getByTestId("record-history-timeline")).toBeVisible({
+        timeout: 15_000,
+      });
+      const added = dialog
+        .getByTestId("gauge-history-relation-row")
+        .filter({ has: page.getByText(/^Added$/) })
+        .filter({ hasText: /requestor/i });
+      try {
+        await expect.poll(async () => added.count(), { timeout: 5_000 }).toBeGreaterThan(0);
+      } finally {
+        await dialog.getByRole("button", { name: "Close", exact: true }).click();
+        await expect(dialog).toHaveCount(0, { timeout: 15_000 });
+      }
+    }).toPass({ timeout: 90_000, intervals: [1_000, 2_000, 5_000] });
   });
 
   test("e2e.perm.detail.history_acl_deny", async ({ page }) => {
