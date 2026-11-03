@@ -365,6 +365,8 @@ test.describe("e2e.perm.detail", () => {
   });
 
   test("e2e.perm.detail.history_relation_grant", async ({ page }) => {
+    // Seeding, the grant and the 90 s retry window below all share this budget.
+    test.setTimeout(150_000);
     const { fixtures } = await seedAuth(page, "admin");
     await page.goto(`/permission/permissions/${fixtures.permission_id}`, {
       waitUntil: "domcontentloaded",
