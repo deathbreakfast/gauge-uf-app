@@ -28,6 +28,22 @@ use crate::server::{
     search_principals, update_group, UpdateGroupInput, SUPER_USER_GROUP_ID,
 };
 
+/// Remove one member by kind; `totp_code` is only read for user and service-user members.
+async fn remove_member(
+    kind: PrincipalKind,
+    group_id: String,
+    principal_id: String,
+    totp_code: String,
+) -> Result<(), ServerFnError> {
+    match kind {
+        PrincipalKind::Group => remove_group_group(group_id, principal_id).await,
+        PrincipalKind::ServiceUser => {
+            remove_group_service_user(group_id, principal_id, totp_code).await
+        }
+        _ => remove_group_user(group_id, principal_id, totp_code).await,
+    }
+}
+
 /// Group detail/edit page: owners and members pickers, name/description editing,
 /// delete, audit history, and a request-access flow.
 #[component]
@@ -206,6 +222,33 @@ pub fn GroupDetailPage() -> impl IntoView {
                 let user_id = item.id.clone();
                 async move { add_group_owner_user(group_id, user_id, String::new()).await }
             });
+        }
+    });
+
+    let on_remove_confirm = Callback::new(move |(): ()| {
+        let Some((principal_id, kind, _)) = pending_remove.get() else {
+            return;
+        };
+        let gid = group_id.get();
+        let finish_ok = Callback::new(move |(): ()| {
+            refresh.update(|n| *n += 1);
+            error.set(None);
+            confirm_remove_open.set(false);
+            pending_remove.set(None);
+        });
+        let is_group = matches!(kind, PrincipalKind::Group);
+        let remove = move |totp_code: String| {
+            let gid = gid.clone();
+            let id = principal_id.clone();
+            let kind = kind.clone();
+            async move { remove_member(kind, gid, id, totp_code).await }
+        };
+        if is_group {
+            spawn_with_step_up(error, finish_ok, move || remove(String::new()));
+        } else if group_id.get() == SUPER_USER_GROUP_ID {
+            spawn_with_fresh_totp(error, finish_ok, remove);
+        } else {
+            spawn_with_step_up(error, finish_ok, move || remove(String::new()));
         }
     });
 
@@ -497,55 +540,7 @@ pub fn GroupDetailPage() -> impl IntoView {
                                                     </Button>
                                                     <Button
                                                         appearance=ButtonAppearance::Primary
-                                                        on_click=Callback::new(move |_| {
-                                                            let pending = pending_remove.get();
-                                                            let gid = group_id.get();
-                                                            if let Some((principal_id, kind, _)) = pending {
-                                                                let finish_ok = Callback::new(move |_: ()| {
-                                                                    refresh.update(|n| *n += 1);
-                                                                    error.set(None);
-                                                                    confirm_remove_open.set(false);
-                                                                    pending_remove.set(None);
-                                                                });
-                                                                match kind {
-                                                                    PrincipalKind::Group => {
-                                                                        spawn_with_step_up(error, finish_ok, move || {
-                                                                            let gid = gid.clone();
-                                                                            let id = principal_id.clone();
-                                                                            async move { remove_group_group(gid, id).await }
-                                                                        });
-                                                                    }
-                                                                    PrincipalKind::ServiceUser if gid == SUPER_USER_GROUP_ID => {
-                                                                        spawn_with_fresh_totp(error, finish_ok, move |totp_code| {
-                                                                            let gid = gid.clone();
-                                                                            let id = principal_id.clone();
-                                                                            async move { remove_group_service_user(gid, id, totp_code).await }
-                                                                        });
-                                                                    }
-                                                                    PrincipalKind::ServiceUser => {
-                                                                        spawn_with_step_up(error, finish_ok, move || {
-                                                                            let gid = gid.clone();
-                                                                            let id = principal_id.clone();
-                                                                            async move { remove_group_service_user(gid, id, String::new()).await }
-                                                                        });
-                                                                    }
-                                                                    _ if gid == SUPER_USER_GROUP_ID => {
-                                                                        spawn_with_fresh_totp(error, finish_ok, move |totp_code| {
-                                                                            let gid = gid.clone();
-                                                                            let id = principal_id.clone();
-                                                                            async move { remove_group_user(gid, id, totp_code).await }
-                                                                        });
-                                                                    }
-                                                                    _ => {
-                                                                        spawn_with_step_up(error, finish_ok, move || {
-                                                                            let gid = gid.clone();
-                                                                            let id = principal_id.clone();
-                                                                            async move { remove_group_user(gid, id, String::new()).await }
-                                                                        });
-                                                                    }
-                                                                }
-                                                            }
-                                                        })
+                                                        on_click=Callback::new(move |_| on_remove_confirm.run(()))
                                                     >
                                                         "Remove"
                                                     </Button>
