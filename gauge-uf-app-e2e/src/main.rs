@@ -8,8 +8,11 @@ use axum::routing::{get, post};
 use axum::Router;
 use gauge_uf_app_e2e::seed::seed_data;
 use gauge_uf_app_e2e::{
-    e2e_higgs_config, e2e_router, init_e2e_valence, inject_e2e_session_snapshot, shell, App,
+    e2e_higgs_config, e2e_router, e2e_valence_factory, init_e2e_valence,
+    inject_e2e_session_snapshot, shell, App,
 };
+// Linked for its `lepton_service_users` search source, which the person pickers query.
+use lepton_app as _;
 use leptos::config::get_configuration;
 use leptos::prelude::provide_context;
 use leptos_axum::{generate_route_list, LeptosRoutes};
@@ -42,6 +45,11 @@ async fn serve() -> anyhow::Result<()> {
         .with_same_site(tower_sessions::cookie::SameSite::Lax)
         .with_name("uf_gauge_uf_app_e2e")
         .with_path("/");
+    let auth_layer = axum_login::AuthManagerLayerBuilder::new(
+        lepton_host_adapter::Backend::new(e2e_valence_factory()),
+        session_layer,
+    )
+    .build();
 
     let leptos_options_for_routes = leptos_options.clone();
     let leptos_options_state = leptos_options.clone();
@@ -65,7 +73,7 @@ async fn serve() -> anyhow::Result<()> {
         .fallback(leptos_axum::file_and_error_handler(shell))
         .layer(from_fn(inject_e2e_session_snapshot))
         .layer(Extension(router))
-        .layer(session_layer)
+        .layer(auth_layer)
         .with_state(leptos_options_state);
 
     log::info!("gauge-uf-app-e2e listening on http://{addr}");

@@ -1,5 +1,6 @@
 use gauge::search_sources::PermissionSearchSourceId;
 use gauge::types::{PermissionRequestTargetKind, PrincipalKind};
+use lepton_shell::people::{PersonPicker, PickedPrincipal};
 use leptos::prelude::*;
 use leptos::task::spawn_local_scoped;
 use leptos_router::hooks::{use_navigate, use_params_map, use_query_map};
@@ -16,6 +17,9 @@ use uf_product::primitives::{
 };
 use uf_search_core::{SearchSourceItem, SearchSourceKey};
 
+use crate::pages::principal_pick::{
+    act_on_pick, to_picked, use_group_options, PickTarget, GROUPS_LABEL,
+};
 use crate::pages::shared::history_dialog::HistoryDialog;
 use crate::pages::shared::principal;
 use crate::pages::shared::request_access::{
@@ -50,10 +54,22 @@ pub fn PermissionDetailPage() -> impl IntoView {
     let owners_group_id = RwSignal::new(String::new());
     let domain_id = RwSignal::new(String::new());
     let domains = Resource::new(|| (), |()| async move { list_domains(None).await });
-    let picker_options = RwSignal::new(Vec::<SearchSourceItem>::new());
-    let picker_request_seq = RwSignal::new(0u64);
+    let owners_options = RwSignal::new(Vec::<SearchSourceItem>::new());
+    let owners_request_seq = RwSignal::new(0u64);
+    let owners_error = RwSignal::new(None::<String>);
     let error = RwSignal::new(None::<String>);
-    let picker_error = RwSignal::new(None::<String>);
+    let allow_pick = RwSignal::new(Vec::<PickedPrincipal>::new());
+    let groups = use_group_options(refresh, Signal::derive(|| None));
+    // The DTO carries only the owners group id; name it from the groups the picker loaded.
+    let owners_group_name = Signal::derive(move || {
+        let id = owners_group_id.get();
+        groups
+            .get()
+            .into_iter()
+            .flat_map(|g| g.options)
+            .find(|o| o.id == id)
+            .map_or(id, |o| o.label)
+    });
     let confirm_remove_open = RwSignal::new(false);
     let pending_remove = RwSignal::new(None::<(String, bool, String)>);
     let request_dialog_open = RwSignal::new(false);
@@ -97,55 +113,61 @@ pub fn PermissionDetailPage() -> impl IntoView {
     };
 
     let request_initial = Callback::new(move |sources: Vec<SearchSourceKey>| {
-        let request_id = picker_request_seq.get_untracked().saturating_add(1);
-        picker_request_seq.set(request_id);
+        let request_id = owners_request_seq.get_untracked().saturating_add(1);
+        owners_request_seq.set(request_id);
         spawn_local_scoped(async move {
             match search_principals(sources, None, 10).await {
                 Ok(rows) => {
-                    if picker_request_seq.get_untracked() == request_id {
-                        picker_options.set(rows);
-                        picker_error.set(None);
+                    if owners_request_seq.get_untracked() == request_id {
+                        owners_options.set(rows);
+                        owners_error.set(None);
                     }
                 }
-                Err(err) => picker_error.set(Some(err.to_string())),
+                Err(err) => owners_error.set(Some(err.to_string())),
             }
         });
     });
 
     let request_search = Callback::new(move |(sources, query): (Vec<SearchSourceKey>, String)| {
-        let request_id = picker_request_seq.get_untracked().saturating_add(1);
-        picker_request_seq.set(request_id);
+        let request_id = owners_request_seq.get_untracked().saturating_add(1);
+        owners_request_seq.set(request_id);
         spawn_local_scoped(async move {
             match search_principals(sources, Some(query), 10).await {
                 Ok(rows) => {
-                    if picker_request_seq.get_untracked() == request_id {
-                        picker_options.set(rows);
-                        picker_error.set(None);
+                    if owners_request_seq.get_untracked() == request_id {
+                        owners_options.set(rows);
+                        owners_error.set(None);
                     }
                 }
-                Err(err) => picker_error.set(Some(err.to_string())),
+                Err(err) => owners_error.set(Some(err.to_string())),
             }
         });
     });
 
-    let on_select = Callback::new(move |item: SearchSourceItem| {
-        let permission_id = permission_id.get();
+    let on_select_owners_group = Callback::new(move |item: SearchSourceItem| {
+        owners_group_id.set(item.id);
+        owners_error.set(None);
+    });
+
+    let on_allow_pick = act_on_pick(allow_pick, move |target| {
+        let permission_id = permission_id.get_untracked();
         let finish_ok = Callback::new(move |_: ()| {
             refresh.update(|n| *n += 1);
             error.set(None);
         });
-        if item.source_id == PermissionSearchSourceId::PermissionGroup.as_str() {
-            spawn_with_step_up(error, finish_ok, move || {
+        match target {
+            PickTarget::Group(group_id) => spawn_with_step_up(error, finish_ok, move || {
                 let permission_id = permission_id.clone();
-                let group_id = item.id.clone();
+                let group_id = group_id.clone();
                 async move { add_permission_group(permission_id, group_id).await }
-            });
-        } else {
-            spawn_with_step_up(error, finish_ok, move || {
+            }),
+            PickTarget::User(user_id) => spawn_with_step_up(error, finish_ok, move || {
                 let permission_id = permission_id.clone();
-                let user_id = item.id.clone();
+                let user_id = user_id.clone();
                 async move { add_permission_user(permission_id, user_id).await }
-            });
+            }),
+            // Service users hold permissions through groups; this picker doesn't offer them.
+            PickTarget::ServiceUser(_) => {}
         }
     });
 
@@ -201,8 +223,27 @@ pub fn PermissionDetailPage() -> impl IntoView {
                                             <Field label="Description">
                                                 <Textarea bind=description />
                                             </Field>
-                                            <Field label="Owners Group Id">
-                                                <Input bind=owners_group_id />
+                                            <Field label="Owners group">
+                                                <div id="gauge-perm-owners-group-picker">
+                                                <SearchSourcePicker
+                                                    search_sources=Signal::derive(|| vec![
+                                                        PermissionSearchSourceId::PermissionGroup.into(),
+                                                    ])
+                                                    options=owners_options
+                                                    placeholder="Search permission groups"
+                                                    on_request_initial=request_initial
+                                                    on_search=request_search
+                                                    on_select=on_select_owners_group
+                                                />
+                                                </div>
+                                                <Caption1 attr:data-testid="gauge-perm-owners-group">
+                                                    {move || format!("Owned by {}", owners_group_name.get())}
+                                                </Caption1>
+                                                <Show when=move || owners_error.get().is_some()>
+                                                    <MessageBar intent=MessageBarIntent::Error>
+                                                        {move || owners_error.get().unwrap_or_default()}
+                                                    </MessageBar>
+                                                </Show>
                                             </Field>
                                             <Field label="Domain">
                                                 <Select
@@ -298,26 +339,21 @@ pub fn PermissionDetailPage() -> impl IntoView {
                                         <Flex vertical=true gap=FlexGap::Medium padding=SpacingSize::Size200.inset()>
                                             <Flex vertical=true gap=FlexGap::Small>
                                                 <Title3>"Allow List"</Title3>
-                                                <Caption1>"Add users or groups that should inherit this permission."</Caption1>
+                                                <Caption1>"Add people or permission groups that should hold this permission. Service users get it by joining a group."</Caption1>
                                             </Flex>
                                             <div id="gauge-perm-allow-picker">
-                                            <SearchSourcePicker
-                                                search_sources=Signal::derive(|| vec![
-                                                    PermissionSearchSourceId::User.into(),
-                                                    PermissionSearchSourceId::PermissionGroup
-                                                        .into(),
-                                                ])
-                                                options=picker_options
-                                                on_request_initial=request_initial
-                                                on_search=request_search
-                                                on_select=on_select
+                                            <PersonPicker
+                                                value=allow_pick
+                                                single=true
+                                                exclude=Signal::derive(move || {
+                                                    allow_list.get().iter().map(to_picked).collect::<Vec<_>>()
+                                                })
+                                                extra_groups=groups
+                                                label="Add a person or group"
+                                                placeholder=format!("Search people or {}", GROUPS_LABEL.to_lowercase())
+                                                on_change=on_allow_pick
                                             />
                                             </div>
-                                            <Show when=move || picker_error.get().is_some()>
-                                                <MessageBar intent=MessageBarIntent::Error>
-                                                    {move || picker_error.get().unwrap_or_default()}
-                                                </MessageBar>
-                                            </Show>
                                             <div id="gauge-perm-allow-remove">
                                             <Show when=move || !allow_list.get().is_empty() fallback=move || view! {
                                                 <EmptyState message="No principals are currently in the allow list." />

@@ -12,6 +12,6 @@ pub mod seed;
 
 pub use app::{shell, App};
 #[cfg(feature = "ssr")]
-pub use e2e_valence::{e2e_higgs_config, e2e_router, init_e2e_valence};
+pub use e2e_valence::{e2e_higgs_config, e2e_router, e2e_valence_factory, init_e2e_valence};
 #[cfg(feature = "ssr")]
 pub use gate_demos::inject_e2e_session_snapshot;

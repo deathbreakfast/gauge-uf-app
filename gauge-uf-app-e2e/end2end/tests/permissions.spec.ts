@@ -1,4 +1,13 @@
-import { test, expect, seedAuth, waitForHydrated, expectMutationDenied } from "./fixtures";
+import {
+  test,
+  expect,
+  seedAuth,
+  waitForHydrated,
+  expectMutationDenied,
+  PEOPLE,
+  pickPrincipal,
+  userRow,
+} from "./fixtures";
 
 test.describe("e2e.perm.index", () => {
   test("e2e.perm.index.load_happy", async ({ page }) => {
@@ -57,30 +66,6 @@ test.describe("e2e.perm.index", () => {
 });
 
 test.describe("e2e.domain.create", () => {
-  async function pickSearchResult(
-    page: import("@playwright/test").Page,
-    label: string,
-  ) {
-    const listbox = page.getByRole("listbox");
-    await expect(listbox).toBeVisible({ timeout: 30_000 });
-    const option = listbox
-      .getByRole("option")
-      .filter({ has: page.getByText(label, { exact: true }) })
-      .first();
-    await expect(option).toBeAttached({ timeout: 30_000 });
-    try {
-      await option.click({ force: true, timeout: 5_000 });
-    } catch {
-      await option.evaluate((el: HTMLElement) => {
-        el.dispatchEvent(
-          new MouseEvent("click", { bubbles: true, cancelable: true, view: window }),
-        );
-      });
-    }
-    await page.keyboard.press("Escape").catch(() => undefined);
-    await expect(listbox).toHaveCount(0, { timeout: 15_000 }).catch(() => undefined);
-  }
-
   async function createDomainAndOpenDetail(
     page: import("@playwright/test").Page,
     name: string,
@@ -130,12 +115,9 @@ test.describe("e2e.domain.create", () => {
     await createDomainAndOpenDetail(page, `E2E-Domain-Owner-${Date.now()}`, "owners e2e");
     const owners = page.locator("#gauge-domain-owners-picker");
     await expect(owners).toBeVisible({ timeout: 60_000 });
-    const picker = owners.getByPlaceholder(/Search users or groups/i);
-    await picker.click();
-    await page.keyboard.type("requestor");
-    await pickSearchResult(page, "requestor");
+    await pickPrincipal(page, "gauge-domain-owners-picker", "Rae", PEOPLE.requestor);
     const ownerList = page.locator("#gauge-domain-owner-remove");
-    await expect(ownerList.getByText("requestor", { exact: true })).toBeVisible({
+    await expect(ownerList.getByText(userRow("requestor"))).toBeVisible({
       timeout: 60_000,
     });
   });
@@ -143,16 +125,13 @@ test.describe("e2e.domain.create", () => {
   test("e2e.domain.detail.remove_owner", async ({ page }) => {
     await createDomainAndOpenDetail(page, `E2E-Domain-RmOwner-${Date.now()}`, "remove owner e2e");
     const owners = page.locator("#gauge-domain-owners-picker");
-    const picker = owners.getByPlaceholder(/Search users or groups/i);
-    await picker.click();
-    await page.keyboard.type("requestor");
-    await pickSearchResult(page, "requestor");
+    await pickPrincipal(page, "gauge-domain-owners-picker", "Rae", PEOPLE.requestor);
     const ownerList = page.locator("#gauge-domain-owner-remove");
-    await expect(ownerList.getByText("requestor", { exact: true })).toBeVisible({
+    await expect(ownerList.getByText(userRow("requestor"))).toBeVisible({
       timeout: 60_000,
     });
     await ownerList
-      .getByText("requestor", { exact: true })
+      .getByText(userRow("requestor"))
       .locator("xpath=ancestor::div[count(.//*[@aria-label='Open owner actions'])=1][1]")
       .getByRole("button", { name: /^Open owner actions$/i })
       .click();
@@ -161,7 +140,7 @@ test.describe("e2e.domain.create", () => {
     await expect(dialog).toBeVisible({ timeout: 15_000 });
     await dialog.getByRole("button", { name: "Remove", exact: true }).click();
     await expect(dialog).toHaveCount(0, { timeout: 60_000 });
-    await expect(ownerList.getByText("requestor", { exact: true })).toHaveCount(0, {
+    await expect(ownerList.getByText(userRow("requestor"))).toHaveCount(0, {
       timeout: 60_000,
     });
   });
@@ -179,20 +158,17 @@ test.describe("e2e.domain.create", () => {
     await seedAuth(page, "requestor");
     await page.goto(domainUrl, { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
-    const picker = page
-      .locator("#gauge-domain-owners-picker")
-      .getByPlaceholder(/Search users or groups/i);
-    // Non-admin may not see the picker (editor-only owners UI) or sees search deny.
+    const picker = page.locator("#gauge-domain-owners-picker").getByRole("combobox");
+    // Non-admin may not see the picker (editor-only owners UI) or gets the add refused.
     if ((await picker.count()) === 0) {
       await expect(page.getByText(/Domain Detail/i)).toBeVisible({ timeout: 60_000 });
       return;
     }
-    await expect(picker).toBeVisible({ timeout: 60_000 });
-    await picker.click();
-    await page.keyboard.type("admin");
-    await expect(page.locator(".orbital-message-bar--error").first()).toBeVisible({
-      timeout: 60_000,
-    });
+    await pickPrincipal(page, "gauge-domain-owners-picker", "Otto", PEOPLE.outsider);
+    await expectMutationDenied(page);
+    await expect(
+      page.locator("#gauge-domain-owner-remove").getByText(userRow("outsider")),
+    ).toHaveCount(0);
   });
 
   test("e2e.domain.create.no_admin", async ({ page }) => {

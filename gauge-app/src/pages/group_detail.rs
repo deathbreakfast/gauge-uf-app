@@ -1,10 +1,9 @@
-use gauge::search_sources::PermissionSearchSourceId;
 use gauge::types::{PermissionRequestTargetKind, PrincipalKind};
+use lepton_shell::people::{PersonPicker, PickedPrincipal};
 use leptos::prelude::*;
 use leptos::task::spawn_local_scoped;
 use leptos_router::hooks::{use_navigate, use_params_map, use_query_map};
 use leptos_router::NavigateOptions;
-use uf_integrations::SearchSourcePicker;
 use uf_product::components::{
     Body1, Caption1, Card, CardContent, CardSectionBorder, EmptyState, SkeletonItemSize,
 };
@@ -14,8 +13,8 @@ use uf_product::primitives::{
     DialogTitle, Field, Flex, FlexAlign, FlexGap, FlexJustify, Icon, Input, Menu, MenuItem,
     MenuTrigger, MessageBar, MessageBarIntent, SkeletonItem, Textarea,
 };
-use uf_search_core::{SearchSourceItem, SearchSourceKey};
 
+use crate::pages::principal_pick::{act_on_pick, to_picked, use_group_options, PickTarget};
 use crate::pages::shared::history_dialog::HistoryDialog;
 use crate::pages::shared::principal;
 use crate::pages::shared::request_access::{
@@ -23,9 +22,9 @@ use crate::pages::shared::request_access::{
 };
 use crate::pages::step_up::{spawn_with_fresh_totp, spawn_with_step_up};
 use crate::server::{
-    add_group_group, add_group_owner_user, add_group_user, delete_group, get_group,
-    remove_group_group, remove_group_owner_user, remove_group_service_user, remove_group_user,
-    search_principals, update_group, UpdateGroupInput, SUPER_USER_GROUP_ID,
+    add_group_group, add_group_owner_user, add_group_service_user, add_group_user, delete_group,
+    get_group, remove_group_group, remove_group_owner_user, remove_group_service_user,
+    remove_group_user, update_group, UpdateGroupInput, SUPER_USER_GROUP_ID,
 };
 
 /// Remove one member by kind; `totp_code` is only read for user and service-user members.
@@ -63,13 +62,11 @@ pub fn GroupDetailPage() -> impl IntoView {
 
     let name = RwSignal::new(String::new());
     let description = RwSignal::new(String::new());
-    let picker_options = RwSignal::new(Vec::<SearchSourceItem>::new());
-    let picker_request_seq = RwSignal::new(0u64);
-    let owner_picker_options = RwSignal::new(Vec::<SearchSourceItem>::new());
-    let owner_picker_request_seq = RwSignal::new(0u64);
+    let member_pick = RwSignal::new(Vec::<PickedPrincipal>::new());
+    let owner_pick = RwSignal::new(Vec::<PickedPrincipal>::new());
     let error = RwSignal::new(None::<String>);
-    let picker_error = RwSignal::new(None::<String>);
-    let owner_picker_error = RwSignal::new(None::<String>);
+    // A group can't contain itself, so the members picker leaves it out.
+    let groups = use_group_options(refresh, Signal::derive(move || Some(group_id.get())));
     let confirm_remove_open = RwSignal::new(false);
     let pending_remove = RwSignal::new(None::<(String, PrincipalKind, String)>);
     let confirm_remove_owner_open = RwSignal::new(false);
@@ -108,104 +105,46 @@ pub fn GroupDetailPage() -> impl IntoView {
         });
     };
 
-    let request_initial = Callback::new(move |sources: Vec<SearchSourceKey>| {
-        let request_id = picker_request_seq.get_untracked().saturating_add(1);
-        picker_request_seq.set(request_id);
-        spawn_local_scoped(async move {
-            match search_principals(sources, None, 10).await {
-                Ok(rows) => {
-                    if picker_request_seq.get_untracked() == request_id {
-                        picker_options.set(rows);
-                        picker_error.set(None);
-                    }
-                }
-                Err(err) => picker_error.set(Some(err.to_string())),
-            }
-        });
-    });
-
-    let request_search = Callback::new(move |(sources, query): (Vec<SearchSourceKey>, String)| {
-        let request_id = picker_request_seq.get_untracked().saturating_add(1);
-        picker_request_seq.set(request_id);
-        spawn_local_scoped(async move {
-            match search_principals(sources, Some(query), 10).await {
-                Ok(rows) => {
-                    if picker_request_seq.get_untracked() == request_id {
-                        picker_options.set(rows);
-                        picker_error.set(None);
-                    }
-                }
-                Err(err) => picker_error.set(Some(err.to_string())),
-            }
-        });
-    });
-
-    let on_select = Callback::new(move |item: SearchSourceItem| {
-        let group_id = group_id.get();
+    let on_member_pick = act_on_pick(member_pick, move |target| {
+        let group_id = group_id.get_untracked();
         let finish_ok = Callback::new(move |_: ()| {
             refresh.update(|n| *n += 1);
             error.set(None);
         });
-        if item.source_id == PermissionSearchSourceId::PermissionGroup.as_str() {
-            spawn_with_step_up(error, finish_ok, move || {
+        match target {
+            PickTarget::Group(nested_id) => spawn_with_step_up(error, finish_ok, move || {
                 let group_id = group_id.clone();
-                let nested_id = item.id.clone();
+                let nested_id = nested_id.clone();
                 async move { add_group_group(group_id, nested_id).await }
-            });
-        } else if group_id == SUPER_USER_GROUP_ID {
-            spawn_with_fresh_totp(error, finish_ok, move |totp_code| {
-                let group_id = group_id.clone();
-                let user_id = item.id.clone();
-                async move { add_group_user(group_id, user_id, totp_code).await }
-            });
-        } else {
-            spawn_with_step_up(error, finish_ok, move || {
-                let group_id = group_id.clone();
-                let user_id = item.id.clone();
-                async move { add_group_user(group_id, user_id, String::new()).await }
-            });
-        }
-    });
-
-    let owner_request_initial = Callback::new(move |sources: Vec<SearchSourceKey>| {
-        let request_id = owner_picker_request_seq.get_untracked().saturating_add(1);
-        owner_picker_request_seq.set(request_id);
-        spawn_local_scoped(async move {
-            match search_principals(sources, None, 10).await {
-                Ok(rows) => {
-                    if owner_picker_request_seq.get_untracked() == request_id {
-                        owner_picker_options.set(rows);
-                        owner_picker_error.set(None);
-                    }
-                }
-                Err(err) => owner_picker_error.set(Some(err.to_string())),
+            }),
+            PickTarget::User(user_id) if group_id == SUPER_USER_GROUP_ID => {
+                spawn_with_fresh_totp(error, finish_ok, move |totp_code| {
+                    let group_id = group_id.clone();
+                    let user_id = user_id.clone();
+                    async move { add_group_user(group_id, user_id, totp_code).await }
+                });
             }
-        });
+            PickTarget::User(user_id) => spawn_with_step_up(error, finish_ok, move || {
+                let group_id = group_id.clone();
+                let user_id = user_id.clone();
+                async move { add_group_user(group_id, user_id, String::new()).await }
+            }),
+            PickTarget::ServiceUser(service_user_id) => {
+                spawn_with_step_up(error, finish_ok, move || {
+                    let group_id = group_id.clone();
+                    let service_user_id = service_user_id.clone();
+                    async move { add_group_service_user(group_id, service_user_id, String::new()).await }
+                });
+            }
+        }
     });
 
-    let owner_request_search =
-        Callback::new(move |(sources, query): (Vec<SearchSourceKey>, String)| {
-            let request_id = owner_picker_request_seq.get_untracked().saturating_add(1);
-            owner_picker_request_seq.set(request_id);
-            spawn_local_scoped(async move {
-                match search_principals(sources, Some(query), 10).await {
-                    Ok(rows) => {
-                        if owner_picker_request_seq.get_untracked() == request_id {
-                            owner_picker_options.set(rows);
-                            owner_picker_error.set(None);
-                        }
-                    }
-                    Err(err) => owner_picker_error.set(Some(err.to_string())),
-                }
-            });
-        });
-
-    let on_select_owner = Callback::new(move |item: SearchSourceItem| {
-        let group_id = group_id.get();
-        if item.kind != "user" {
-            error.set(Some("Only users can be owners.".to_string()));
+    let on_owner_pick = act_on_pick(owner_pick, move |target| {
+        // The owners picker searches people only.
+        let PickTarget::User(user_id) = target else {
             return;
-        }
+        };
+        let group_id = group_id.get_untracked();
         let finish_ok = Callback::new(move |_: ()| {
             refresh.update(|n| *n += 1);
             error.set(None);
@@ -213,13 +152,13 @@ pub fn GroupDetailPage() -> impl IntoView {
         if group_id == SUPER_USER_GROUP_ID {
             spawn_with_fresh_totp(error, finish_ok, move |totp_code| {
                 let group_id = group_id.clone();
-                let user_id = item.id.clone();
+                let user_id = user_id.clone();
                 async move { add_group_owner_user(group_id, user_id, totp_code).await }
             });
         } else {
             spawn_with_step_up(error, finish_ok, move || {
                 let group_id = group_id.clone();
-                let user_id = item.id.clone();
+                let user_id = user_id.clone();
                 async move { add_group_owner_user(group_id, user_id, String::new()).await }
             });
         }
@@ -303,21 +242,17 @@ pub fn GroupDetailPage() -> impl IntoView {
                                                 <Caption1>"Owners can edit this group, manage owners, and manage members."</Caption1>
                                             </Flex>
                                             <div id="gauge-group-owners-picker">
-                                            <SearchSourcePicker
-                                                search_sources=Signal::derive(|| {
-                                                    vec![PermissionSearchSourceId::User.into()]
+                                            <PersonPicker
+                                                value=owner_pick
+                                                single=true
+                                                exclude=Signal::derive(move || {
+                                                    owner_users.get().iter().map(to_picked).collect::<Vec<_>>()
                                                 })
-                                                options=owner_picker_options
-                                                on_request_initial=owner_request_initial
-                                                on_search=owner_request_search
-                                                on_select=on_select_owner
+                                                label="Add an owner"
+                                                placeholder="Search people"
+                                                on_change=on_owner_pick
                                             />
                                             </div>
-                                            <Show when=move || owner_picker_error.get().is_some()>
-                                                <MessageBar intent=MessageBarIntent::Error>
-                                                    {move || owner_picker_error.get().unwrap_or_default()}
-                                                </MessageBar>
-                                            </Show>
                                             <div id="gauge-group-owner-remove">
                                             <Show when=move || !owner_users.get().is_empty() fallback=move || view! {
                                                 <EmptyState message="No owners are assigned to this group." />
@@ -431,26 +366,23 @@ pub fn GroupDetailPage() -> impl IntoView {
                                         <Flex vertical=true gap=FlexGap::Medium padding=SpacingSize::Size200.inset()>
                                             <Flex vertical=true gap=FlexGap::Small>
                                                 <Title3>"Members"</Title3>
-                                                <Caption1>"Manage user and nested-group membership."</Caption1>
+                                                <Caption1>"Manage people, service users and nested groups."</Caption1>
                                             </Flex>
                                             <div id="gauge-group-members-picker">
-                                            <SearchSourcePicker
-                                                search_sources=Signal::derive(|| vec![
-                                                    PermissionSearchSourceId::User.into(),
-                                                    PermissionSearchSourceId::PermissionGroup
-                                                        .into(),
-                                                ])
-                                                options=picker_options
-                                                on_request_initial=request_initial
-                                                on_search=request_search
-                                                on_select=on_select
+                                            <PersonPicker
+                                                value=member_pick
+                                                single=true
+                                                // Gauge never lets a service user into the Super User group.
+                                                service_users=group_id.get_untracked() != SUPER_USER_GROUP_ID
+                                                exclude=Signal::derive(move || {
+                                                    members.get().iter().map(to_picked).collect::<Vec<_>>()
+                                                })
+                                                extra_groups=groups
+                                                label="Add a member"
+                                                placeholder="Search people, service users or groups"
+                                                on_change=on_member_pick
                                             />
                                             </div>
-                                            <Show when=move || picker_error.get().is_some()>
-                                                <MessageBar intent=MessageBarIntent::Error>
-                                                    {move || picker_error.get().unwrap_or_default()}
-                                                </MessageBar>
-                                            </Show>
                                             <div id="gauge-group-member-remove">
                                             <Show when=move || !members.get().is_empty() fallback=move || view! {
                                                 <EmptyState message="No members are currently assigned to this group." />
