@@ -1,4 +1,5 @@
-import { test as base, expect, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+import { test as base, expect, type Locator, type Page } from "@playwright/test";
 
 export type SeedAuthKind =
   | "anonymous"
@@ -494,6 +495,106 @@ export async function expectMutationDenied(page: Page) {
   await expect(page.locator(".orbital-message-bar--error").first()).toBeVisible({
     timeout: 60_000,
   });
+}
+
+/** Display names the host seeds, which the person pickers search by. */
+export const PEOPLE = {
+  admin: "Ada Admin",
+  requestor: "Rae Requestor",
+  outsider: "Otto Outsider",
+} as const;
+
+/** Display name of the service user `admin` owns (`admin-agent`). */
+export const ADMIN_AGENT_NAME = "Admin's agent";
+
+/**
+ * Matches a user's principal row by the `user (<id>)` detail line, whatever its
+ * display label.
+ */
+export function userRow(id: string): RegExp {
+  return new RegExp(`^user \\(${id}\\)`);
+}
+
+/** The PersonPicker's input inside the wrapper `#<wrapperId>`. */
+export function pickerInput(page: Page, wrapperId: string): Locator {
+  return page.locator(`#${wrapperId}`).getByRole("combobox");
+}
+
+/** The open listbox that belongs to the picker inside `#<wrapperId>`. */
+export async function pickerList(page: Page, wrapperId: string): Promise<Locator> {
+  const controls = await pickerInput(page, wrapperId).getAttribute("aria-controls");
+  expect(controls, "combobox names its listbox").toBeTruthy();
+  return page.locator(`[id="${controls}"]`);
+}
+
+/** Type `text` into the picker and return its listbox. */
+export async function searchPicker(
+  page: Page,
+  wrapperId: string,
+  text: string,
+): Promise<Locator> {
+  const input = pickerInput(page, wrapperId);
+  await expect(input).toBeVisible({ timeout: 60_000 });
+  await input.fill(text);
+  return pickerList(page, wrapperId);
+}
+
+/** Type `text` and wait until the people search for it has answered. */
+export async function searchPickerAnswered(
+  page: Page,
+  wrapperId: string,
+  text: string,
+): Promise<Locator> {
+  const answered = page.waitForResponse((res) => /search_people/i.test(res.url()));
+  const list = await searchPicker(page, wrapperId, text);
+  await answered;
+  return list;
+}
+
+/**
+ * Picker rows whose text includes `name`, or with `exact`, rows holding an element whose
+ * whole text is `name` (so "Deployers" doesn't match "NestedDeployers").
+ */
+export function pickerRow(list: Locator, name: string, exact = false): Locator {
+  const rows = list.getByTestId("person-picker-row");
+  return exact
+    ? rows.filter({ has: list.page().getByText(name, { exact: true }) })
+    : rows.filter({ hasText: name });
+}
+
+/** Search the picker for `query`, then pick the row named `name`. */
+export async function pickPrincipal(
+  page: Page,
+  wrapperId: string,
+  query: string,
+  name: string,
+  exact = false,
+) {
+  const list = await searchPicker(page, wrapperId, query);
+  const row = pickerRow(list, name, exact).first();
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  await row.click();
+}
+
+/** The looks every person picker scenario runs in. */
+export const LOOKS = ["desktop-light", "desktop-dark", "phone"] as const;
+export type Look = (typeof LOOKS)[number];
+
+/** Set the viewport and color scheme for `look`. */
+export async function useLook(page: Page, look: Look) {
+  await page.setViewportSize(
+    look === "phone" ? { width: 390, height: 844 } : { width: 1280, height: 720 },
+  );
+  await page.emulateMedia({ colorScheme: look === "desktop-dark" ? "dark" : "light" });
+}
+
+/** Fail on any WCAG 2 A/AA axe violation on the page. */
+export async function expectNoA11yViolations(page: Page, label: string) {
+  const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+  const summary = results.violations.flatMap((v) =>
+    v.nodes.map((n) => `${v.id} (${v.impact}): ${n.target.join(" ")}`),
+  );
+  expect(summary, `axe violations on ${label}`).toEqual([]);
 }
 
 export const test = base;

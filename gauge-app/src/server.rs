@@ -546,6 +546,34 @@ pub async fn remove_group_service_user(
     Ok(())
 }
 
+/// Add a service user as a member of a group.
+///
+/// Gauge refuses the Super User group, a group the caller doesn't own, and a service user
+/// the caller can't see (its owner, or someone who manages every service user).
+#[uf_product_macros::server(permission = "GaugeAdmin")]
+pub async fn add_group_service_user(
+    /// Unique identifier of the group to add the member to.
+    group_id: String,
+    /// Unique identifier of the service user to add as a member.
+    service_user_id: String,
+    /// Fresh TOTP when `group_id` is the Super User group; ignored otherwise.
+    totp_code: String,
+) -> Result<(), ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    let service_user = lepton_identity::service_users::ServiceUserId::parse(&service_user_id)
+        .map_err(|_| ServerFnError::new("Invalid service user id"))?;
+    require_group_membership_step_up(&group_id, &totp_code).await?;
+    gauge::service::add_group_member_service_user(
+        &group_id,
+        &service_user,
+        &valence_from_ctx(&ctx)?,
+    )
+    .await
+    .map_err(|e| map_service_err("add group service user", e))?;
+    Ok(())
+}
+
 /// Add a child group relationship to a parent group.
 #[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
 pub async fn add_group_group(

@@ -23,6 +23,7 @@ use valence::{
 struct E2eState {
     router: Arc<DatabaseRouter>,
     higgs: Arc<HiggsConfig>,
+    valence_factory: Arc<dyn HiggsValenceFactory>,
     default_backend_key: String,
     fixtures: Mutex<FixtureIds>,
 }
@@ -233,6 +234,31 @@ async fn seed_user(id: &str, email_verified: bool, valence: &Valence) {
         .expect("upsert user");
 }
 
+/// Display names the person pickers search by, one per seeded user.
+const DISPLAY_NAMES: [(&str, &str); 4] = [
+    ("admin", "Ada Admin"),
+    ("requestor", "Rae Requestor"),
+    ("outsider", "Otto Outsider"),
+    ("unverified", "Uma Unverified"),
+];
+
+/// Give seeded user `id` a profile, since people search finds people by display name.
+async fn seed_profile(id: &str, display_name: &str, valence: &Valence) {
+    let now = Utc::now();
+    let profile = lepton_identity::generated::UserProfile::new(
+        RecordId::new("user", id),
+        display_name.to_string(),
+        display_name.to_string(),
+        now,
+        now,
+        None,
+    )
+    .expect("build profile");
+    lepton_identity::generated::UserProfile::create(profile, valence, valence::use_!(r#"**Test:** Fixture **UserProfile** save for `e2e_valence` so the person picker specs can find seeded users by display name. CI and developers running the suite only."#))
+        .await
+        .expect("create profile");
+}
+
 /// Handle of the service user `requestor` owns.
 const REQUESTOR_SERVICE_USER: &str = "requestor-agent";
 /// Make the service user `admin` owns a member of the fixture group. Safe to repeat.
@@ -422,6 +448,9 @@ pub async fn init_e2e_valence() {
     seed_user("requestor", true, &system).await;
     seed_user("outsider", true, &system).await;
     seed_user("unverified", false, &system).await;
+    for (id, display_name) in DISPLAY_NAMES {
+        seed_profile(id, display_name, &system).await;
+    }
     // Super User is required to grant GaugeAdmin once; strip afterward so the
     // Needs Review inbox is non-empty (super users get an empty review queue).
     seed_super_user_with_member(&system, "admin").await;
@@ -467,7 +496,7 @@ pub async fn init_e2e_valence() {
     )));
     let higgs = Arc::new(
         HiggsConfig::builder()
-            .valence_factory_arc(factory)
+            .valence_factory_arc(Arc::clone(&factory))
             .build()
             .expect("e2e HiggsConfig"),
     );
@@ -475,6 +504,7 @@ pub async fn init_e2e_valence() {
     let state = Arc::new(E2eState {
         router,
         higgs,
+        valence_factory: factory,
         default_backend_key: default_key,
         fixtures: Mutex::new(fixtures),
     });
@@ -582,6 +612,11 @@ pub fn e2e_router() -> Arc<DatabaseRouter> {
 
 pub fn e2e_higgs_config() -> Arc<HiggsConfig> {
     Arc::clone(&state().higgs)
+}
+
+/// The factory the axum-login backend loads signed-in users through.
+pub fn e2e_valence_factory() -> Arc<dyn HiggsValenceFactory> {
+    Arc::clone(&state().valence_factory)
 }
 
 pub fn e2e_fixtures() -> FixtureIds {

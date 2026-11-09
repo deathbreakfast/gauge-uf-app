@@ -171,10 +171,12 @@ pub async fn write_e2e_auth_kind(
         .map_err(|e| anyhow::anyhow!(e.to_string()))
 }
 
-/// Mirror e2e tower-session into higgs_identity::SessionSnapshot.
+/// Mirror e2e tower-session into higgs_identity::SessionSnapshot, and into the axum-login
+/// session that lepton's people search reads the signed-in user from.
 #[cfg(feature = "ssr")]
 pub async fn inject_e2e_session_snapshot(
     session: tower_sessions::Session,
+    mut auth: lepton_host_adapter::AuthSession<lepton_host_adapter::Backend>,
     mut req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
@@ -187,9 +189,40 @@ pub async fn inject_e2e_session_snapshot(
         .flatten()
         .map(|raw| E2eAuthKind::parse(&raw))
         .unwrap_or(E2eAuthKind::Anonymous);
+    sync_axum_login(&mut auth, kind.session_user_id()).await;
     if let Some(user_id) = kind.session_user_id() {
         req.extensions_mut()
             .insert(SessionSnapshot::new(user_id, b"e2e-auth-hash"));
     }
     next.run(req).await
+}
+
+/// Sign the axum-login session in as `user_id`, or out when there's none.
+#[cfg(feature = "ssr")]
+async fn sync_axum_login(
+    auth: &mut lepton_host_adapter::AuthSession<lepton_host_adapter::Backend>,
+    user_id: Option<&str>,
+) {
+    use axum_login::AuthnBackend;
+
+    let session_id = user_id.map(|id| format!("user:{id}"));
+    let current = auth.user.as_ref().map(|u| u.session_id.clone());
+    if current == session_id {
+        return;
+    }
+    let Some(session_id) = session_id else {
+        if let Err(e) = auth.logout().await {
+            log::warn!("e2e axum-login logout failed: {e}");
+        }
+        return;
+    };
+    match auth.backend.get_user(&session_id).await {
+        Ok(Some(user)) => {
+            if let Err(e) = auth.login(&user).await {
+                log::warn!("e2e axum-login login failed for {session_id}: {e}");
+            }
+        }
+        Ok(None) => log::warn!("e2e axum-login: no user {session_id}"),
+        Err(e) => log::warn!("e2e axum-login: loading {session_id} failed: {e}"),
+    }
 }
