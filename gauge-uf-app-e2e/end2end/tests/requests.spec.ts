@@ -1,4 +1,4 @@
-import { test, expect, seedAuth, waitForHydrated } from "./fixtures";
+import { test, expect, seedAuth, waitForHydrated, userRow } from "./fixtures";
 
 test.describe("e2e.req.index", () => {
   test("e2e.req.index.reviewer_sees_pending", async ({ page }) => {
@@ -103,7 +103,7 @@ test.describe("e2e.req.detail", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    await expect(page.getByText("requestor", { exact: true }).first()).toBeVisible({
+    await expect(page.getByText(userRow("requestor")).first()).toBeVisible({
       timeout: 60_000,
     });
   });
@@ -120,7 +120,7 @@ test.describe("e2e.req.detail", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    await expect(page.getByText("requestor", { exact: true }).first()).toBeVisible({
+    await expect(page.getByText(userRow("requestor")).first()).toBeVisible({
       timeout: 60_000,
     });
   });
