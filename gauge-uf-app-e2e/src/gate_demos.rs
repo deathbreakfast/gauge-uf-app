@@ -197,7 +197,8 @@ pub async fn inject_e2e_session_snapshot(
     next.run(req).await
 }
 
-/// Sign the axum-login session in as `user_id`, or out when there's none.
+/// Sign the axum-login session in as `user_id` (a `user:<id>` record id), or out when
+/// there's none.
 #[cfg(feature = "ssr")]
 async fn sync_axum_login(
     auth: &mut lepton_host_adapter::AuthSession<lepton_host_adapter::Backend>,
@@ -205,9 +206,11 @@ async fn sync_axum_login(
 ) {
     use axum_login::AuthnBackend;
 
-    let session_id = user_id.map(|id| format!("user:{id}"));
-    let current = auth.user.as_ref().map(|u| u.session_id.clone());
-    if current == session_id {
+    // Compare bare ids: `user_id` is a record id such as `user:admin`.
+    let bare = |id: &str| id.rsplit(':').next().unwrap_or(id).to_string();
+    let session_id = user_id.map(str::to_string);
+    let current = auth.user.as_ref().map(|u| bare(&u.session_id));
+    if current == session_id.as_deref().map(bare) {
         return;
     }
     let Some(session_id) = session_id else {
