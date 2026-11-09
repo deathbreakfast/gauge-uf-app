@@ -10,6 +10,7 @@ import {
   seedAuth,
   waitForHydrated,
   ADMIN_AGENT_NAME,
+  clickRow,
   LOOKS,
   PEOPLE,
   expectNoA11yViolations,
@@ -86,7 +87,7 @@ for (const look of LOOKS) {
       await expect(rae).toBeVisible({ timeout: 30_000 });
       await expect(rae).not.toContainText("@");
       await expectNoA11yViolations(page, `permission allow picker open (${look})`);
-      await rae.click();
+      await clickRow(rae);
       const allowList = page.locator("#gauge-perm-allow-remove");
       await expect(allowList.getByText(userRow("requestor"))).toBeVisible({ timeout: 60_000 });
 
@@ -130,7 +131,7 @@ for (const look of LOOKS) {
       const agent = serviceUserRows(list).filter({ hasText: ADMIN_AGENT_NAME });
       await expect(agent).toContainText("Service user · owned by you", { timeout: 30_000 });
       await expectNoA11yViolations(page, `group members picker open (${look})`);
-      await agent.click();
+      await clickRow(agent);
       const members = page.locator("#gauge-group-member-remove");
       await expect(members.getByText("admin-agent", { exact: true })).toBeVisible({
         timeout: 60_000,
@@ -217,7 +218,7 @@ for (const look of LOOKS) {
         .filter({ has: page.getByText("Deployers", { exact: true }) })
         .first();
       await expect(option).toBeVisible({ timeout: 30_000 });
-      await option.click();
+      await clickRow(option);
       const caption = page.getByTestId("gauge-perm-owners-group");
       await expect(caption).toHaveText("Owned by Deployers", { timeout: 30_000 });
       await page.getByRole("button", { name: /Save Changes/i }).click();

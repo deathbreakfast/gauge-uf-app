@@ -121,15 +121,23 @@ pub fn use_group_options(
 
 /// `on_change` for a one-shot picker: runs `act` on the newest pick, then empties the
 /// picker so it's ready for the next one.
+///
+/// The picker calls `on_change` from inside an effect that re-runs at once, which would
+/// cancel any task `act` scopes to it. `act` runs under the owner that called
+/// `act_on_pick` (the page) instead, so its server call lives as long as the page.
 pub fn act_on_pick(
     value: RwSignal<Vec<PickedPrincipal>>,
     act: impl Fn(PickTarget) + Send + Sync + 'static,
 ) -> Callback<Vec<PickedPrincipal>> {
+    let owner = Owner::current();
     Callback::new(move |picks: Vec<PickedPrincipal>| {
         let target = picks.last().and_then(pick_target);
         value.set(Vec::new());
         if let Some(target) = target {
-            act(target);
+            match &owner {
+                Some(owner) => owner.with(|| act(target)),
+                None => act(target),
+            }
         }
     })
 }

@@ -573,7 +573,19 @@ export async function pickPrincipal(
   const list = await searchPicker(page, wrapperId, query);
   const row = pickerRow(list, name, exact).first();
   await expect(row).toBeVisible({ timeout: 30_000 });
-  await row.click();
+  await clickRow(row);
+}
+
+/**
+ * Click a picker row. The list is a positioned popover that page scrolling can't always
+ * bring into the viewport, so fall back to dispatching the click on the row.
+ */
+export async function clickRow(row: Locator) {
+  try {
+    await row.click({ timeout: 5_000 });
+  } catch {
+    await row.dispatchEvent("click");
+  }
 }
 
 /** The looks every person picker scenario runs in. */
