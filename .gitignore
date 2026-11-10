@@ -2,8 +2,8 @@
 /target-*
 /node_modules
 /examples/gauge-ui-e2e/end2end/node_modules
-/examples/gauge-ui-e2e/site/pkg
+/examples/gauge-ui-e2e/site
 /gauge-uf-app-e2e/end2end/node_modules
 /gauge-uf-app-e2e/end2end/test-results
 /gauge-uf-app-e2e/end2end/playwright-report
-/gauge-uf-app-e2e/site/pkg
+/gauge-uf-app-e2e/site
