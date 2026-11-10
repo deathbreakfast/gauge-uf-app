@@ -16,14 +16,29 @@ async function openCreatorsRequest(page: Page, forHandle: string) {
   return dialog;
 }
 
-/** File a request for "Service user creators" on behalf of `handle` through the dialog. */
-async function requestForServiceUser(page: Page, handle: string) {
+/**
+ * File a request for "Service user creators" on behalf of `handle` through the dialog.
+ *
+ * With `allowPending`, an earlier test on the same server may already have filed it; gauge
+ * allows one pending request per access, so "already pending" also leaves one in place.
+ */
+async function requestForServiceUser(page: Page, handle: string, allowPending = false) {
   const dialog = await openCreatorsRequest(page, handle);
   await expect(dialog.locator("#gauge-request-for select")).toHaveValue(handle, {
     timeout: 60_000,
   });
   await dialog.locator("textarea").fill(`pw service user request ${Date.now()}`);
   await dialog.getByRole("button", { name: "Submit Request", exact: true }).click();
+  if (allowPending) {
+    const pending = dialog.getByText("A request for this access is already pending");
+    await expect(async () => {
+      if (await pending.isVisible()) {
+        await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+      }
+      await expect(dialog).toHaveCount(0, { timeout: 1_000 });
+    }).toPass({ timeout: 60_000 });
+    return;
+  }
   await expect(dialog).toHaveCount(0, { timeout: 60_000 });
 }
 
@@ -124,7 +139,7 @@ test.describe("gauge.request-for-service-user", () => {
     // Refresh mints plain (people) pending requests beside the service user one.
     const { fixtures } = await seedAuth(page, "requestor", true);
     const handle = fixtures.service_user_handle;
-    await requestForServiceUser(page, handle);
+    await requestForServiceUser(page, handle, true);
 
     await page.goto("/permission/requests", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);

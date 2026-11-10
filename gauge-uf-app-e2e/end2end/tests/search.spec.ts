@@ -1,4 +1,16 @@
-import { test, expect, seedAuth, waitForHydrated } from "./fixtures";
+import {
+  test,
+  expect,
+  seedAuth,
+  waitForHydrated,
+  PEOPLE,
+  pickerInput,
+  pickerList,
+  pickerRow,
+  searchPickerAnswered,
+} from "./fixtures";
+
+const PICKER = "gauge-perm-allow-picker";
 
 test.describe("e2e.search.principals", () => {
   test("e2e.search.principals_initial", async ({ page }) => {
@@ -7,11 +19,12 @@ test.describe("e2e.search.principals", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    const picker = page.getByPlaceholder(/Search users or groups/i).first();
-    await picker.click();
-    const listbox = page.getByRole("listbox");
-    await expect(listbox).toBeVisible({ timeout: 30_000 });
-    await expect(listbox.getByRole("option").first()).toBeVisible({ timeout: 30_000 });
+    // An empty box lists the permission groups, never the people directory.
+    await pickerInput(page, PICKER).click();
+    const list = await pickerList(page, PICKER);
+    await expect(list.locator('[data-testid="person-picker-row"][data-kind="extra"]').first())
+      .toBeVisible({ timeout: 30_000 });
+    await expect(list.locator('[data-testid="person-picker-row"][data-kind="user"]')).toHaveCount(0);
   });
 
   test("e2e.search.principals_query_user", async ({ page }) => {
@@ -20,13 +33,11 @@ test.describe("e2e.search.principals", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    const picker = page.getByPlaceholder(/Search users or groups/i).first();
-    await picker.click();
-    await page.keyboard.type("requestor");
-    const listbox = page.getByRole("listbox");
-    await expect(listbox.getByRole("option", { name: /requestor/i })).toBeVisible({
-      timeout: 30_000,
-    });
+    const list = await searchPickerAnswered(page, PICKER, "requ");
+    const rae = pickerRow(list, PEOPLE.requestor);
+    await expect(rae).toBeVisible({ timeout: 30_000 });
+    await expect(rae).toHaveAttribute("data-kind", "user");
+    await expect(rae).not.toContainText("@");
   });
 
   test("e2e.search.principals_query_group", async ({ page }) => {
@@ -35,15 +46,10 @@ test.describe("e2e.search.principals", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    const picker = page.getByPlaceholder(/Search users or groups/i).first();
-    await picker.click();
-    await page.keyboard.type("Deployers");
-    const listbox = page.getByRole("listbox");
-    await expect(
-      listbox.getByRole("option", { name: /^Deployers\b/i }).first(),
-    ).toBeVisible({
-      timeout: 30_000,
-    });
+    const list = await searchPickerAnswered(page, PICKER, "Deployers");
+    const group = pickerRow(list, "Deployers", true).first();
+    await expect(group).toBeVisible({ timeout: 30_000 });
+    await expect(group).toHaveAttribute("data-kind", "extra");
   });
 
   test("e2e.search.principals_no_admin", async ({ page }) => {
@@ -52,11 +58,8 @@ test.describe("e2e.search.principals", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    const picker = page.getByPlaceholder(/Search users or groups/i).first();
-    await picker.click();
-    await page.keyboard.type("admin");
-    await expect(page.locator(".orbital-message-bar--error").first()).toBeVisible({
-      timeout: 60_000,
-    });
+    // The group list comes from a GaugeAdmin-only search, so a non-admin sees no groups.
+    const list = await searchPickerAnswered(page, PICKER, "Deployers");
+    await expect(list.locator('[data-testid="person-picker-row"][data-kind="extra"]')).toHaveCount(0);
   });
 });

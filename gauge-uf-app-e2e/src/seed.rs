@@ -4,7 +4,9 @@ use axum::http::StatusCode;
 use axum::Json;
 use chrono::Utc;
 use gauge::service;
-use gauge::types::{PermissionRequestCreateInput, PermissionRequestTargetKind};
+use gauge::types::{
+    PermissionRequestCreateInput, PermissionRequestStatusDto, PermissionRequestTargetKind,
+};
 use serde::Deserialize;
 use valence::Actor;
 
@@ -268,32 +270,53 @@ async fn refresh_pending_requests(mut fixtures: FixtureIds) -> anyhow::Result<Fi
     }
 
     // Mint as requestor so outsider unauthorized_viewer can assert deny-by-viewer.
-    let perm_row = service::create_permission_request(
-        PermissionRequestCreateInput {
-            target_kind: PermissionRequestTargetKind::Permission,
-            target_id: fixtures.permission_id.clone(),
-            reason: format!("e2e refresh perm {}", chrono::Utc::now().timestamp_millis()),
-            on_behalf_of: None,
-        },
+    fixtures.pending_perm_request_id = pending_request(
+        PermissionRequestTargetKind::Permission,
+        &fixtures.permission_id,
+        "perm",
         &requestor_ctx,
     )
     .await?;
-    fixtures.pending_perm_request_id = perm_row.id;
-
-    let group_row = service::create_permission_request(
-        PermissionRequestCreateInput {
-            target_kind: PermissionRequestTargetKind::Group,
-            target_id: fixtures.group_id.clone(),
-            reason: format!(
-                "e2e refresh group {}",
-                chrono::Utc::now().timestamp_millis()
-            ),
-            on_behalf_of: None,
-        },
+    fixtures.pending_group_request_id = pending_request(
+        PermissionRequestTargetKind::Group,
+        &fixtures.group_id,
+        "group",
         &requestor_ctx,
     )
     .await?;
-    fixtures.pending_group_request_id = group_row.id;
 
     Ok(fixtures)
+}
+
+/// A pending request from the requestor for `target_id`: a fresh one, or the one still
+/// pending, since gauge allows only one pending request per access.
+async fn pending_request(
+    target_kind: PermissionRequestTargetKind,
+    target_id: &str,
+    label: &str,
+    requestor_ctx: &valence::Valence,
+) -> anyhow::Result<String> {
+    let existing = service::list_permission_requests_for_actor(requestor_ctx)
+        .await?
+        .into_iter()
+        .find(|row| {
+            row.target_kind == target_kind
+                && row.target_id == target_id
+                && row.status == PermissionRequestStatusDto::Pending
+                && row.on_behalf_of.is_none()
+        });
+    if let Some(row) = existing {
+        return Ok(row.id);
+    }
+    let row = service::create_permission_request(
+        PermissionRequestCreateInput {
+            target_kind,
+            target_id: target_id.to_string(),
+            reason: format!("e2e refresh {label} {}", Utc::now().timestamp_millis()),
+            on_behalf_of: None,
+        },
+        requestor_ctx,
+    )
+    .await?;
+    Ok(row.id)
 }

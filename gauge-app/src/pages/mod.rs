@@ -16,6 +16,8 @@ pub mod permission_create;
 pub mod permission_detail;
 /// [`PermissionsIndexPage`] — permission list.
 pub mod permissions_index;
+/// Maps `PersonPicker` picks to Gauge principals and offers permission groups beside people.
+pub mod principal_pick;
 /// [`RequestDetailPage`] — access request detail/review page.
 pub mod request_detail;
 /// [`RequestsIndexPage`] — access request inbox.

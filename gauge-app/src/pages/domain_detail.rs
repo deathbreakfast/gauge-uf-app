@@ -1,9 +1,8 @@
-use gauge::search_sources::PermissionSearchSourceId;
+use lepton_shell::people::{PersonPicker, PickedPrincipal};
 use leptos::prelude::*;
 use leptos::task::spawn_local_scoped;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use leptos_router::NavigateOptions;
-use uf_integrations::SearchSourcePicker;
 use uf_product::components::{Body1, Caption1, Card, EmptyState, SkeletonItemSize};
 use uf_product::components::{ContentContainer, SpacingSize, Title3};
 use uf_product::primitives::{
@@ -11,8 +10,8 @@ use uf_product::primitives::{
     DialogTitle, Field, Flex, FlexAlign, FlexGap, FlexJustify, Input, Menu, MenuItem, MenuTrigger,
     MessageBar, MessageBarIntent, SkeletonItem, Textarea,
 };
-use uf_search_core::{SearchSourceItem, SearchSourceKey};
 
+use crate::pages::principal_pick::{act_on_pick, to_picked, PickTarget};
 use crate::pages::step_up::spawn_with_step_up;
 use crate::server::{
     add_domain_owner_user, delete_domain, get_domain, remove_domain_owner_user, update_domain,
@@ -36,8 +35,7 @@ pub fn DomainDetailPage() -> impl IntoView {
 
     let name = RwSignal::new(String::new());
     let description = RwSignal::new(String::new());
-    let owner_picker_options = RwSignal::new(Vec::<SearchSourceItem>::new());
-    let owner_picker_request_seq = RwSignal::new(0u64);
+    let owner_pick = RwSignal::new(Vec::<PickedPrincipal>::new());
     let error = RwSignal::new(None::<String>);
     let owner_picker_error = RwSignal::new(None::<String>);
     let confirm_remove_owner_open = RwSignal::new(false);
@@ -65,40 +63,11 @@ pub fn DomainDetailPage() -> impl IntoView {
         });
     };
 
-    let owner_request_initial = Callback::new(move |sources: Vec<SearchSourceKey>| {
-        let request_id = owner_picker_request_seq.get_untracked().saturating_add(1);
-        owner_picker_request_seq.set(request_id);
-        spawn_local_scoped(async move {
-            match crate::server::search_principals(sources, None, 10).await {
-                Ok(rows) => {
-                    if owner_picker_request_seq.get_untracked() == request_id {
-                        owner_picker_options.set(rows);
-                        owner_picker_error.set(None);
-                    }
-                }
-                Err(err) => owner_picker_error.set(Some(err.to_string())),
-            }
-        });
-    });
-
-    let owner_request_search =
-        Callback::new(move |(sources, query): (Vec<SearchSourceKey>, String)| {
-            let request_id = owner_picker_request_seq.get_untracked().saturating_add(1);
-            owner_picker_request_seq.set(request_id);
-            spawn_local_scoped(async move {
-                match crate::server::search_principals(sources, Some(query), 10).await {
-                    Ok(rows) => {
-                        if owner_picker_request_seq.get_untracked() == request_id {
-                            owner_picker_options.set(rows);
-                            owner_picker_error.set(None);
-                        }
-                    }
-                    Err(err) => owner_picker_error.set(Some(err.to_string())),
-                }
-            });
-        });
-
-    let on_select_owner = Callback::new(move |item: SearchSourceItem| {
+    let on_owner_pick = act_on_pick(owner_pick, move |target| {
+        // The owners picker searches people only.
+        let PickTarget::User(user_id) = target else {
+            return;
+        };
         let id = domain_id.get_untracked();
         let finish_ok = Callback::new(move |_: ()| {
             refresh.update(|n| *n += 1);
@@ -106,7 +75,7 @@ pub fn DomainDetailPage() -> impl IntoView {
         });
         spawn_with_step_up(owner_picker_error, finish_ok, move || {
             let id = id.clone();
-            let user_id = item.id.clone();
+            let user_id = user_id.clone();
             async move { add_domain_owner_user(id, user_id).await }
         });
     });
@@ -155,14 +124,15 @@ pub fn DomainDetailPage() -> impl IntoView {
                                                     <Caption1>"Owners can rename this domain, manage owners, and delete it."</Caption1>
                                                 </Flex>
                                                 <div id="gauge-domain-owners-picker">
-                                                <SearchSourcePicker
-                                                    search_sources=Signal::derive(|| {
-                                                        vec![PermissionSearchSourceId::User.into()]
+                                                <PersonPicker
+                                                    value=owner_pick
+                                                    single=true
+                                                    exclude=Signal::derive(move || {
+                                                        owner_users.get().iter().map(to_picked).collect::<Vec<_>>()
                                                     })
-                                                    options=owner_picker_options
-                                                    on_request_initial=owner_request_initial
-                                                    on_search=owner_request_search
-                                                    on_select=on_select_owner
+                                                    label="Add an owner"
+                                                    placeholder="Search people"
+                                                    on_change=on_owner_pick
                                                 />
                                                 </div>
                                                 <Show when=move || owner_picker_error.get().is_some()>

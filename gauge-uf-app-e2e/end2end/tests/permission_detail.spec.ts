@@ -1,40 +1,34 @@
-import { test, expect, seedAuth, waitForHydrated, expectMutationDenied } from "./fixtures";
+import {
+  test,
+  expect,
+  seedAuth,
+  waitForHydrated,
+  expectMutationDenied,
+  PEOPLE,
+  pickPrincipal,
+  pickerRow,
+  searchPickerAnswered,
+  userRow,
+} from "./fixtures";
 
-async function pickSearchResult(page: import("@playwright/test").Page, label: string) {
-  const listbox = page.getByRole("listbox");
-  await expect(listbox).toBeVisible({ timeout: 30_000 });
-  // Match the title node exactly so /Deployers/ does not hit NestedDeployers.
-  const option = listbox
-    .getByRole("option")
-    .filter({ has: page.getByText(label, { exact: true }) })
-    .first();
-  await expect(option).toBeAttached({ timeout: 30_000 });
-  try {
-    await option.click({ force: true, timeout: 5_000 });
-  } catch {
-    await option.evaluate((el: HTMLElement) => {
-      el.dispatchEvent(
-        new MouseEvent("click", { bubbles: true, cancelable: true, view: window }),
-      );
-    });
-  }
-  await page.keyboard.press("Escape").catch(() => undefined);
+/** A principal the allow list can hold: how to find it in the picker and in the list. */
+type Grantee = { query: string; name: string; exact: boolean; listed: string | RegExp };
+
+const REQUESTOR: Grantee = {
+  query: "Rae",
+  name: PEOPLE.requestor,
+  exact: false,
+  listed: userRow("requestor"),
+};
+const DEPLOYERS: Grantee = { query: "Deployers", name: "Deployers", exact: true, listed: "Deployers" };
+
+function textIn(row: import("@playwright/test").Locator, label: string | RegExp) {
+  return typeof label === "string" ? row.getByText(label, { exact: true }) : row.getByText(label);
 }
-
-async function typeIntoPicker(
-  page: import("@playwright/test").Page,
-  label: string,
-) {
-  const picker = page.getByPlaceholder(/Search users or groups/i).first();
-  await picker.click();
-  await picker.fill("");
-  await page.keyboard.type(label);
-}
-
 
 async function principalHasActions(
   page: import("@playwright/test").Page,
-  label: string,
+  label: string | RegExp,
 ): Promise<boolean> {
   const aria = "Open member actions";
   const buttons = page.getByRole("button", { name: new RegExp(`^${aria}$`, "i") });
@@ -43,7 +37,7 @@ async function principalHasActions(
     const row = buttons
       .nth(i)
       .locator(`xpath=ancestor::div[count(.//*[@aria-label='${aria}'])=1][1]`);
-    if ((await row.getByText(label, { exact: true }).count()) > 0) return true;
+    if ((await textIn(row, label).count()) > 0) return true;
   }
   return false;
 }
@@ -51,7 +45,7 @@ async function principalHasActions(
 
 async function expectGrantedPrincipal(
   page: import("@playwright/test").Page,
-  label: string,
+  label: string | RegExp,
 ) {
   await expect
     .poll(async () => principalHasActions(page, label), { timeout: 60_000 })
@@ -60,24 +54,24 @@ async function expectGrantedPrincipal(
 
 async function expectPrincipalRevoked(
   page: import("@playwright/test").Page,
-  label: string,
+  label: string | RegExp,
 ) {
   await expect
     .poll(async () => principalHasActions(page, label), { timeout: 60_000 })
     .toBe(false);
 }
 
-async function ensureGrantedPrincipal(
-  page: import("@playwright/test").Page,
-  label: string,
-) {
-  if (await principalHasActions(page, label)) return;
-  await typeIntoPicker(page, label);
-  await pickSearchResult(page, label);
-  await expectGrantedPrincipal(page, label);
+async function ensureGrantedPrincipal(page: import("@playwright/test").Page, who: Grantee) {
+  if (await principalHasActions(page, who.listed)) return;
+  await pickPrincipal(page, "gauge-perm-allow-picker", who.query, who.name, who.exact);
+  await expectGrantedPrincipal(page, who.listed);
 }
 
-async function revokePrincipal(page: import("@playwright/test").Page, label: string, confirm: boolean) {
+async function revokePrincipal(
+  page: import("@playwright/test").Page,
+  label: string | RegExp,
+  confirm: boolean,
+) {
   await expect
     .poll(async () => principalHasActions(page, label), { timeout: 60_000 })
     .toBe(true);
@@ -89,7 +83,7 @@ async function revokePrincipal(page: import("@playwright/test").Page, label: str
     const row = buttons
       .nth(i)
       .locator(`xpath=ancestor::div[count(.//*[@aria-label='${aria}'])=1][1]`);
-    if ((await row.getByText(label, { exact: true }).count()) > 0) {
+    if ((await textIn(row, label).count()) > 0) {
       await buttons.nth(i).click();
       clicked = true;
       break;
@@ -171,7 +165,7 @@ test.describe("e2e.perm.detail", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    await ensureGrantedPrincipal(page, "requestor");
+    await ensureGrantedPrincipal(page, REQUESTOR);
   });
 
   test("e2e.perm.detail.grant_group", async ({ page }) => {
@@ -180,7 +174,7 @@ test.describe("e2e.perm.detail", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    await ensureGrantedPrincipal(page, "Deployers");
+    await ensureGrantedPrincipal(page, DEPLOYERS);
   });
 
   test("e2e.perm.detail.picker_search", async ({ page }) => {
@@ -189,14 +183,12 @@ test.describe("e2e.perm.detail", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    const picker = page.getByPlaceholder(/Search users or groups/i).first();
-    await picker.click();
-    await page.keyboard.type("request");
-    const listbox = page.getByRole("listbox");
-    await expect(listbox.getByRole("option", { name: /requestor/i })).toBeVisible({
-      timeout: 30_000,
-    });
-    await expect(listbox.getByRole("option", { name: /^admin$/i })).toHaveCount(0);
+    const list = await searchPickerAnswered(page, "gauge-perm-allow-picker", "Rae");
+    const rae = pickerRow(list, PEOPLE.requestor);
+    await expect(rae).toBeVisible({ timeout: 30_000 });
+    await expect(rae).toHaveAttribute("data-kind", "user");
+    await expect(rae).not.toContainText("@");
+    await expect(pickerRow(list, PEOPLE.admin)).toHaveCount(0);
   });
 
   test("e2e.perm.detail.revoke_user", async ({ page }) => {
@@ -205,9 +197,9 @@ test.describe("e2e.perm.detail", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    await ensureGrantedPrincipal(page, "requestor");
-    await revokePrincipal(page, "requestor", true);
-    await expectPrincipalRevoked(page, "requestor");
+    await ensureGrantedPrincipal(page, REQUESTOR);
+    await revokePrincipal(page, REQUESTOR.listed, true);
+    await expectPrincipalRevoked(page, REQUESTOR.listed);
   });
 
   test("e2e.perm.detail.revoke_group", async ({ page }) => {
@@ -216,9 +208,9 @@ test.describe("e2e.perm.detail", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    await ensureGrantedPrincipal(page, "Deployers");
-    await revokePrincipal(page, "Deployers", true);
-    await expectPrincipalRevoked(page, "Deployers");
+    await ensureGrantedPrincipal(page, DEPLOYERS);
+    await revokePrincipal(page, DEPLOYERS.listed, true);
+    await expectPrincipalRevoked(page, DEPLOYERS.listed);
   });
 
   test("e2e.perm.detail.revoke_cancel", async ({ page }) => {
@@ -227,9 +219,9 @@ test.describe("e2e.perm.detail", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    await ensureGrantedPrincipal(page, "requestor");
-    await revokePrincipal(page, "requestor", false);
-    await expectGrantedPrincipal(page, "requestor");
+    await ensureGrantedPrincipal(page, REQUESTOR);
+    await revokePrincipal(page, REQUESTOR.listed, false);
+    await expectGrantedPrincipal(page, REQUESTOR.listed);
   });
 
   test("e2e.perm.detail.request_btn_hidden", async ({ page }) => {
@@ -238,7 +230,7 @@ test.describe("e2e.perm.detail", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    await ensureGrantedPrincipal(page, "requestor");
+    await ensureGrantedPrincipal(page, REQUESTOR);
     await seedAuth(page, "requestor", false);
     await page.goto(`/permission/permissions/${fixtures.permission_id}`, {
       waitUntil: "domcontentloaded",
@@ -253,13 +245,9 @@ test.describe("e2e.perm.detail", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    const picker = page.getByPlaceholder(/Search users or groups/i).first();
-    await expect(picker).toBeVisible({ timeout: 60_000 });
-    await picker.click();
-    await page.keyboard.type("admin");
-    await expect(page.locator(".orbital-message-bar--error").first()).toBeVisible({
-      timeout: 60_000,
-    });
+    await pickPrincipal(page, "gauge-perm-allow-picker", "Otto", PEOPLE.outsider);
+    await expectMutationDenied(page);
+    await expect.poll(async () => principalHasActions(page, userRow("outsider"))).toBe(false);
   });
 
   test("e2e.perm.detail.request_btn_visible", async ({ page }) => {
@@ -365,22 +353,34 @@ test.describe("e2e.perm.detail", () => {
   });
 
   test("e2e.perm.detail.history_relation_grant", async ({ page }) => {
+    // Seeding, the grant and the 90 s retry window below all share this budget.
+    test.setTimeout(150_000);
     const { fixtures } = await seedAuth(page, "admin");
     await page.goto(`/permission/permissions/${fixtures.permission_id}`, {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    await ensureGrantedPrincipal(page, "requestor");
-    await page.getByRole("button", { name: /Show History|View History|History/i }).click();
+    await ensureGrantedPrincipal(page, REQUESTOR);
+    // The dialog loads history once on open and the relation entry can land
+    // after the grant returns, so reopen it until an Added/requestor row shows.
     const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible({ timeout: 30_000 });
-    await expect(dialog.getByTestId("record-history-timeline")).toBeVisible({
-      timeout: 60_000,
-    });
-    const relation = dialog.getByTestId("gauge-history-relation-row").first();
-    await expect(relation).toBeVisible({ timeout: 60_000 });
-    await expect(relation.getByText(/^Added$/)).toBeVisible();
-    await expect(relation.getByText(/requestor/i).first()).toBeVisible();
+    await expect(async () => {
+      await page.getByRole("button", { name: /Show History|View History|History/i }).click();
+      await expect(dialog).toBeVisible({ timeout: 15_000 });
+      await expect(dialog.getByTestId("record-history-timeline")).toBeVisible({
+        timeout: 15_000,
+      });
+      const added = dialog
+        .getByTestId("gauge-history-relation-row")
+        .filter({ has: page.getByText(/^Added$/) })
+        .filter({ hasText: /requestor/i });
+      try {
+        await expect.poll(async () => added.count(), { timeout: 5_000 }).toBeGreaterThan(0);
+      } finally {
+        await dialog.getByRole("button", { name: "Close", exact: true }).click();
+        await expect(dialog).toHaveCount(0, { timeout: 15_000 });
+      }
+    }).toPass({ timeout: 90_000, intervals: [1_000, 2_000, 5_000] });
   });
 
   test("e2e.perm.detail.history_acl_deny", async ({ page }) => {
