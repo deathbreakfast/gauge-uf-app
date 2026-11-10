@@ -24,6 +24,17 @@ async function requestForServiceUser(page: Page, handle: string) {
   });
   await dialog.locator("textarea").fill(`pw service user request ${Date.now()}`);
   await dialog.getByRole("button", { name: "Submit Request", exact: true }).click();
+  // Gauge allows one pending request per access, and specs sharing a lane server
+  // can leave this one pending already. Either way the request exists afterwards.
+  const alreadyPending = dialog.getByText("A request for this access is already pending");
+  await expect
+    .poll(async () => (await dialog.count()) === 0 || (await alreadyPending.isVisible()), {
+      timeout: 60_000,
+    })
+    .toBe(true);
+  if (await alreadyPending.isVisible()) {
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  }
   await expect(dialog).toHaveCount(0, { timeout: 60_000 });
 }
 
