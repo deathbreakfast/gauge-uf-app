@@ -19,7 +19,7 @@ use uf_product::primitives::{
 };
 use valence::RecordId;
 
-use crate::server::get_gauge_history_page;
+use crate::server::get_gauge_history_page_by_cursor;
 
 const RELATION_FIELDS: &[&str] = &[
     "granted_users",
@@ -151,7 +151,9 @@ fn GaugeHistoryTimeline(source: RecordId) -> impl IntoView {
     let fetcher = page_fetcher(move |page| {
         let sid = sid.clone();
         async move {
-            match get_gauge_history_page(page.offset, page.limit, sid, None).await {
+            match get_gauge_history_page_by_cursor(page.offset, page.limit, sid, None, page.cursor)
+                .await
+            {
                 Ok(page) => {
                     access_denied.set(false);
                     load_failed.set(false);

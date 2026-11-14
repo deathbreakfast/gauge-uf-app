@@ -621,12 +621,15 @@ pub async fn list_history(
         .map_err(|e| map_service_err("list history", e))
 }
 
-/// Paginated Gauge history for the Show History dialog (newest first).
+/// One page of Gauge history for the Show History dialog, newest first, by `offset`.
 ///
 /// Stricter than stock [`record_history_leptos::get_record_history_page`]: requires
 /// session **and** can-edit on the `permission` / `permission_group` source (via
 /// [`gauge::service::actor_can_view_history_subject`]), because parent Read is
 /// `AUTHENTICATED` and would otherwise widen history to every signed-in user.
+///
+/// Pages by offset only. The returned page still carries `next_cursor`, which
+/// [`get_gauge_history_page_by_cursor`] accepts for the next page.
 #[uf_product_macros::server]
 pub async fn get_gauge_history_page(
     /// Zero-based index of the first history row to return.
@@ -640,105 +643,7 @@ pub async fn get_gauge_history_page(
 ) -> Result<orbital_paging::Page<record_history_leptos::HistoryRowView>, ServerFnError> {
     #[cfg(feature = "ssr")]
     {
-        use record_history::RecordHistoryFields;
-        use record_history_leptos::server::into_history_row_view;
-        use record_history_leptos::{
-            clamp_history_page_limit, clamp_history_page_offset, sanitize_kind_filter,
-        };
-
-        const MAX_HISTORY_SCAN: u32 = 10_000;
-
-        let ctx = higgs::Higgs::from_request().await?;
-        require_session(&ctx)?;
-        let v = valence_from_ctx(&ctx)?;
-
-        let table = source.table();
-        let record_id = source.id();
-        match table {
-            "permission" | "permission_group" => {}
-            _ => {
-                return Err(ServerFnError::new(record_history::HISTORY_ACCESS_DENIED));
-            }
-        }
-
-        let can_view = gauge::service::actor_can_view_history_subject(table, record_id, &v)
-            .await
-            .map_err(|e| {
-                tracing::error!(error = %e, operation = "get_gauge_history_page", "can-edit check");
-                ServerFnError::new("Failed to load record history")
-            })?;
-        if !can_view {
-            return Err(ServerFnError::new(record_history::HISTORY_ACCESS_DENIED));
-        }
-
-        // Parent Read ACL + every RecordHistory implementor (including permission_history).
-        let mut rows = match record_history::history_for_source(&source, &v).await {
-            Ok(rows) => rows,
-            Err(record_history::HistoryError::AccessDenied { .. }) => {
-                return Err(ServerFnError::new(record_history::HISTORY_ACCESS_DENIED));
-            }
-            Err(e) => {
-                tracing::error!(
-                    error = %e,
-                    operation = "get_gauge_history_page",
-                    "history_for_source"
-                );
-                return Err(ServerFnError::new("Failed to load record history"));
-            }
-        };
-
-        let limit = clamp_history_page_limit(limit);
-        let offset = clamp_history_page_offset(offset);
-        let kinds = sanitize_kind_filter(kinds);
-
-        rows.sort_by(|a, b| b.changed_at().cmp(a.changed_at()));
-        if let Some(kinds) = kinds.as_deref() {
-            rows.retain(|r| {
-                let Some(id) = r.id.as_ref() else {
-                    return false;
-                };
-                let (kind, _) = record_history::history_row_identity(id);
-                kinds.iter().any(|k| k == kind)
-            });
-        }
-        if rows.len() > MAX_HISTORY_SCAN as usize {
-            rows.truncate(MAX_HISTORY_SCAN as usize);
-        }
-
-        let total_rows = rows.len() as u64;
-        let start = offset as usize;
-        let fetch_n = (limit as usize).saturating_add(1);
-        let page_rows: Vec<_> = rows.into_iter().skip(start).take(fetch_n).collect();
-        let db_rows_fetched = page_rows.len() as u32;
-
-        let mut views = Vec::with_capacity(page_rows.len());
-        for model in page_rows {
-            views.push(into_history_row_view(model, &v).await.map_err(|e| {
-                tracing::error!(
-                    error = %e,
-                    operation = "get_gauge_history_page",
-                    "map history row"
-                );
-                ServerFnError::new("Failed to load record history")
-            })?);
-        }
-
-        let limit_usize = limit as usize;
-        if views.len() > limit_usize {
-            views.truncate(limit_usize);
-        }
-
-        let items_returned = views.len() as u32;
-        let next_request_offset = offset.saturating_add(db_rows_fetched);
-        let has_more =
-            db_rows_fetched > limit || offset.saturating_add(items_returned) < total_rows as u32;
-
-        Ok(orbital_paging::Page {
-            items: views,
-            has_more,
-            total_count: Some(total_rows),
-            next_request_offset: Some(next_request_offset),
-        })
+        serve_gauge_history_page(offset, limit, source, kinds, None).await
     }
 
     #[cfg(not(feature = "ssr"))]
@@ -748,6 +653,109 @@ pub async fn get_gauge_history_page(
             "GetGaugeHistoryPage requires SSR".into(),
         ))
     }
+}
+
+/// One page of Gauge history, newest first, continued by `cursor`.
+///
+/// Same checks as [`get_gauge_history_page`]. Pass the previous page's
+/// `next_cursor` as `cursor` to continue after its last entry instead of
+/// re-reading from the newest one; a missing, stale or malformed cursor pages
+/// by `offset`. The Show History dialog loads its pages through this function.
+/// A cursor grants nothing: the session and can-edit checks run on every page.
+#[uf_product_macros::server]
+pub async fn get_gauge_history_page_by_cursor(
+    /// Zero-based index of the first history row to return (offset path only).
+    offset: u32,
+    /// Maximum number of history rows to return.
+    limit: u32,
+    /// Parent permission or permission_group record.
+    source: valence::RecordId,
+    /// Optional history-table kind filter (e.g. `permission_history`).
+    kinds: Option<Vec<String>>,
+    /// The previous page's `next_cursor`; `None` pages by `offset`.
+    cursor: Option<String>,
+) -> Result<orbital_paging::Page<record_history_leptos::HistoryRowView>, ServerFnError> {
+    #[cfg(feature = "ssr")]
+    {
+        serve_gauge_history_page(offset, limit, source, kinds, cursor).await
+    }
+
+    #[cfg(not(feature = "ssr"))]
+    {
+        let _ = (offset, limit, source, kinds, cursor);
+        Err(ServerFnError::ServerError(
+            "GetGaugeHistoryPageByCursor requires SSR".into(),
+        ))
+    }
+}
+
+/// Session check and request actor for both Gauge history server fns.
+#[cfg(feature = "ssr")]
+async fn serve_gauge_history_page(
+    offset: u32,
+    limit: u32,
+    source: valence::RecordId,
+    kinds: Option<Vec<String>>,
+    cursor: Option<String>,
+) -> Result<orbital_paging::Page<record_history_leptos::HistoryRowView>, ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    let v = valence_from_ctx(&ctx)?;
+    load_gauge_history_page(&source, &v, offset, limit, kinds, cursor).await
+}
+
+/// The body of [`get_gauge_history_page`] and [`get_gauge_history_page_by_cursor`]
+/// after the session check.
+///
+/// `v` carries the request actor. Only `permission` and `permission_group`
+/// sources are accepted, and the actor must be able to edit the source.
+/// `offset`, `limit` and `kinds` are clamped here; paging itself (cursor or
+/// offset) is [`record_history_leptos::load_history_page`].
+///
+/// ## Errors
+///
+/// [`record_history::HISTORY_ACCESS_DENIED`] for another table, a source the
+/// actor can't edit, or one that doesn't exist; `Failed to load record history`
+/// for any other failure.
+#[cfg(feature = "ssr")]
+pub async fn load_gauge_history_page(
+    source: &valence::RecordId,
+    v: &valence::Valence,
+    offset: u32,
+    limit: u32,
+    kinds: Option<Vec<String>>,
+    cursor: Option<String>,
+) -> Result<orbital_paging::Page<record_history_leptos::HistoryRowView>, ServerFnError> {
+    use record_history_leptos::{
+        clamp_history_page_limit, clamp_history_page_offset, load_history_page,
+        sanitize_kind_filter,
+    };
+
+    let table = source.table();
+    if !matches!(table, "permission" | "permission_group") {
+        return Err(ServerFnError::new(record_history::HISTORY_ACCESS_DENIED));
+    }
+
+    let can_view = gauge::service::actor_can_view_history_subject(table, source.id(), v)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, operation = "get_gauge_history_page", "can-edit check");
+            ServerFnError::new("Failed to load record history")
+        })?;
+    if !can_view {
+        return Err(ServerFnError::new(record_history::HISTORY_ACCESS_DENIED));
+    }
+
+    let kinds = sanitize_kind_filter(kinds);
+    load_history_page(
+        source,
+        v,
+        clamp_history_page_offset(offset),
+        clamp_history_page_limit(limit),
+        kinds.as_deref(),
+        cursor,
+    )
+    .await
 }
 
 /// Search principal sources (users/groups) for picker UIs.

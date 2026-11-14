@@ -60,6 +60,9 @@ totp-rs = { workspace = true, optional = true }
 wasm-bindgen = { version = "=0.2.126" }
 web-sys = { version = "=0.3.103", features = ["Element", "HtmlElement", "Node", "Document"] }
 
+[dev-dependencies]
+tokio = { workspace = true }
+
 [features]
 default = []
 # Lab-only process overrides for Playwright seeds (gauge-uf-app-e2e). Not for hosts.

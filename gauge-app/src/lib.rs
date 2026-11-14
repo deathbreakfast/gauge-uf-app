@@ -21,7 +21,8 @@
 //!
 //! - **Show History** — Permission and group detail pages open a dialog with a
 //!   paginated Record History timeline ([`pages::shared::history_dialog::HistoryDialog`]).
-//!   The page loader ([`server::get_gauge_history_page`]) requires a session and
+//!   The page loader ([`server::get_gauge_history_page_by_cursor`]) pages by
+//!   cursor, so long histories don't re-read earlier entries. It requires a session and
 //!   can-edit on the source (`gauge::service::actor_can_view_history_subject`);
 //!   denied viewers see the same "Not authorized to view this history"
 //!   MessageBar as the server error.
@@ -108,15 +109,17 @@
 //!
 //! Detail pages embed [`HistoryDialog`](pages::shared::history_dialog::HistoryDialog)
 //! so editors can open a paginated audit timeline without leaving the subject.
-//! The dialog loads when the request opens it; [`get_gauge_history_page`](server::get_gauge_history_page)
-//! enforces session + can-edit before paging Record History rows.
+//! The dialog loads when the request opens it; [`get_gauge_history_page_by_cursor`](server::get_gauge_history_page_by_cursor)
+//! enforces session + can-edit on every page, then pages Record History rows by
+//! cursor. [`get_gauge_history_page`](server::get_gauge_history_page) is the same
+//! fetch by offset only.
 //!
 //! **Prerequisites:** Mounted [`PermissionRoutes`]; authenticated session; actor
 //! who can edit the permission or group (or Super User).
 //!
 //! ```rust,ignore
 //! use gauge_app::pages::shared::history_dialog::HistoryDialog;
-//! use gauge_app::server::get_gauge_history_page;
+//! use gauge_app::server::get_gauge_history_page_by_cursor;
 //! use leptos::prelude::*;
 //! use valence::RecordId;
 //!
@@ -130,14 +133,16 @@
 //!     />
 //! }
 //! // SSR path used by the timeline fetcher (can-edit ACL):
-//! let page = get_gauge_history_page(
-//!     0,
-//!     25,
-//!     RecordId::new("permission", &permission_id.get()),
-//!     Some(vec!["permission_history".into()]),
-//! )
-//! .await?;
+//! let source = RecordId::new("permission", &permission_id.get());
+//! let kinds = Some(vec!["permission_history".into()]);
+//! let page = get_gauge_history_page_by_cursor(0, 25, source.clone(), kinds.clone(), None).await?;
 //! assert!(!page.items.is_empty() || !page.has_more);
+//! if page.has_more {
+//!     // The next page continues after this one's last entry.
+//!     let offset = page.next_request_offset.unwrap_or(25);
+//!     let next = get_gauge_history_page_by_cursor(offset, 25, source, kinds, page.next_cursor).await?;
+//!     assert!(next.items.len() <= 25);
+//! }
 //! assert!(!permission_id.get().is_empty());
 //! ```
 //!
