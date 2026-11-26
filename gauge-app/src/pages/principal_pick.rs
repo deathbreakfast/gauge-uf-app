@@ -83,6 +83,7 @@ pub fn group_options(items: Vec<SearchSourceItem>, skip: Option<&str>) -> Vec<Pi
                         </Badge>
                     }
                 }),
+                kind: None,
             }
         })
         .collect();
@@ -92,6 +93,8 @@ pub fn group_options(items: Vec<SearchSourceItem>, skip: Option<&str>) -> Vec<Pi
         vec![PickerGroup {
             label: GROUPS_LABEL.to_string(),
             options,
+            caption: None,
+            empty_text: None,
         }]
     }
 }
