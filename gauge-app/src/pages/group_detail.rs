@@ -1,4 +1,4 @@
-use gauge::types::{PermissionRequestTargetKind, PrincipalKind};
+use gauge::types::{PermissionRequestTargetKind, PrincipalKind, PrincipalRefDto};
 use lepton_shell::people::{PersonPicker, PickedPrincipal};
 use leptos::prelude::*;
 use leptos::task::spawn_local_scoped;
@@ -9,9 +9,10 @@ use uf_product::components::{
 };
 use uf_product::components::{ContentContainer, SpacingSize, Title3};
 use uf_product::primitives::{
-    Button, ButtonAppearance, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface,
-    DialogTitle, Field, Flex, FlexAlign, FlexGap, FlexJustify, Icon, Input, Menu, MenuItem,
-    MenuTrigger, MessageBar, MessageBarIntent, SkeletonItem, Textarea,
+    Badge, BadgeAppearance, BadgeColor, BadgeSize, Button, ButtonAppearance, Dialog, DialogActions,
+    DialogBody, DialogContent, DialogSurface, DialogTitle, Field, Flex, FlexAlign, FlexGap,
+    FlexJustify, Icon, Input, Link, Menu, MenuItem, MenuTrigger, MessageBar, MessageBarIntent,
+    MessageBarLayout, SkeletonItem, Textarea,
 };
 
 use crate::pages::principal_pick::{act_on_pick, to_picked, use_group_options, PickTarget};
@@ -20,11 +21,14 @@ use crate::pages::shared::principal;
 use crate::pages::shared::request_access::{
     requested_for_handle, wants_request_dialog, RequestAccessDialog,
 };
+use crate::pages::shared::resource_cards::GroupResourceAccessCard;
 use crate::pages::step_up::{spawn_with_fresh_totp, spawn_with_step_up};
+use crate::resource_access::ManagedGroupDto;
 use crate::server::{
     add_group_group, add_group_owner_user, add_group_service_user, add_group_user, delete_group,
-    get_group, remove_group_group, remove_group_owner_user, remove_group_service_user,
-    remove_group_user, update_group, UpdateGroupInput, SUPER_USER_GROUP_ID,
+    get_group, get_group_managed, remove_group_group, remove_group_owner_user,
+    remove_group_service_user, remove_group_user, update_group, UpdateGroupInput,
+    SUPER_USER_GROUP_ID,
 };
 
 /// Remove one member by kind; `totp_code` is only read for user and service-user members.
@@ -40,6 +44,93 @@ async fn remove_member(
             remove_group_service_user(group_id, principal_id, totp_code).await
         }
         _ => remove_group_user(group_id, principal_id, totp_code).await,
+    }
+}
+
+/// The banner on a group another product manages: where its members come from, or that the
+/// team is archived, with a link to the team.
+#[component]
+fn ManagedGroupBanner(managed: ManagedGroupDto, group_name: String) -> impl IntoView {
+    let source = managed.source_label.clone();
+    let (intent, text) = if managed.archived {
+        (
+            MessageBarIntent::Warning,
+            format!(
+                "{group_name} is archived in {source}, so this group has no members. Its grants stay, and restoring the team brings its members back."
+            ),
+        )
+    } else {
+        (
+            MessageBarIntent::Info,
+            format!(
+                "Members come from the {group_name} team in {source} and change when the team does. Add or remove people there."
+            ),
+        )
+    };
+    let link = managed.source_href.clone().map(|href| {
+        view! {
+            <span data-testid="gauge-group-managed-open">
+                <Link href=href>{format!("Open in {source}")}</Link>
+            </span>
+        }
+    });
+    view! {
+        <div data-testid="gauge-group-managed-banner">
+        <MessageBar intent=intent layout=MessageBarLayout::Multiline>
+            <Flex vertical=true gap=FlexGap::Small>
+                <Body1>{text}</Body1>
+                {link}
+            </Flex>
+        </MessageBar>
+        </div>
+    }
+}
+
+/// Members of a managed group, read-only: the managing product owns the list.
+#[component]
+fn ManagedMembers(members: Vec<PrincipalRefDto>, managed: ManagedGroupDto) -> impl IntoView {
+    let title = format!("Members ({})", members.len());
+    let caption = format!("Read-only: {} manages this list.", managed.source_label);
+    let empty_message = if managed.archived {
+        "No members while the team is archived."
+    } else {
+        "No members to show."
+    };
+    view! {
+        <div data-testid="gauge-group-managed-members">
+        <Card>
+            <CardContent>
+                <Flex vertical=true gap=FlexGap::Medium>
+                    <Flex vertical=true gap=FlexGap::Small>
+                        <Title3>{title}</Title3>
+                        <Caption1>{caption}</Caption1>
+                    </Flex>
+                    {if members.is_empty() {
+                        view! { <EmptyState message=empty_message /> }.into_any()
+                    } else {
+                        view! {
+                            <Flex vertical=true gap=FlexGap::Small>
+                                {members.into_iter().map(|principal| {
+                                    let kind_icon = principal::kind_icon(&principal.kind);
+                                    let detail_line = principal::detail_line(&principal);
+                                    view! {
+                                        <Flex gap=FlexGap::Small align=FlexAlign::Center padding=SpacingSize::Size120.inset()>
+                                            <Icon icon=kind_icon />
+                                            <Flex vertical=true gap=FlexGap::Small>
+                                                <Body1>{principal.label.clone()}</Body1>
+                                                <Caption1>{detail_line}</Caption1>
+                                            </Flex>
+                                        </Flex>
+                                        <CardSectionBorder />
+                                    }
+                                }).collect_view()}
+                            </Flex>
+                        }.into_any()
+                    }}
+                </Flex>
+            </CardContent>
+        </Card>
+        </div>
     }
 }
 
@@ -59,6 +150,13 @@ pub fn GroupDetailPage() -> impl IntoView {
         move || (group_id.get(), refresh.get()),
         move |(id, _)| async move { get_group(id).await },
     );
+
+    // Another product's management of this group (a Polaron team), if any.
+    let managed_res = Resource::new(
+        move || (group_id.get(), refresh.get()),
+        move |(id, _)| async move { get_group_managed(id).await },
+    );
+    let managed = move || managed_res.get().and_then(Result::ok).flatten();
 
     let name = RwSignal::new(String::new());
     let description = RwSignal::new(String::new());
@@ -217,8 +315,32 @@ pub fn GroupDetailPage() -> impl IntoView {
                                         <Flex vertical=true gap=FlexGap::Small padding=SpacingSize::Size200.inset()>
                                             <Flex justify=FlexJustify::SpaceBetween align=FlexAlign::Center gap=FlexGap::Small>
                                                 <Flex vertical=true gap=FlexGap::Small>
-                                                    <Title3>"Group Detail"</Title3>
-                                                    <Caption1>{format!("ID: {}", row.id.clone())}</Caption1>
+                                                    <Flex align=FlexAlign::Center gap=FlexGap::Small>
+                                                        <Title3>"Group Detail"</Title3>
+                                                        <Show when=move || managed().is_some()>
+                                                            <span data-testid="gauge-group-team-badge">
+                                                                <Badge appearance=BadgeAppearance::Tint color=BadgeColor::Informative size=BadgeSize::Small>
+                                                                    "Team"
+                                                                </Badge>
+                                                            </span>
+                                                        </Show>
+                                                        <Show when=move || managed().is_some_and(|m| m.archived)>
+                                                            <span data-testid="gauge-group-archived-badge">
+                                                                <Badge appearance=BadgeAppearance::Tint color=BadgeColor::Subtle size=BadgeSize::Small>
+                                                                    "Archived team"
+                                                                </Badge>
+                                                            </span>
+                                                        </Show>
+                                                    </Flex>
+                                                    <Caption1>
+                                                        {
+                                                            let id = row.id.clone();
+                                                            move || match managed() {
+                                                                Some(m) => format!("ID: {id} · managed by {}", m.source_label),
+                                                                None => format!("ID: {id}"),
+                                                            }
+                                                        }
+                                                    </Caption1>
                                                 </Flex>
                                                 <div id="gauge-group-request-access">
                                                 <Show when=move || row.can_request_access>
@@ -231,6 +353,12 @@ pub fn GroupDetailPage() -> impl IntoView {
                                                 </Show>
                                                 </div>
                                             </Flex>
+                                            {
+                                                let group_name = row.name.clone();
+                                                move || managed().map(|m| view! {
+                                                    <ManagedGroupBanner managed=m group_name=group_name.clone() />
+                                                })
+                                            }
                                         </Flex>
                                     </Card>
                                     </div>
@@ -362,6 +490,12 @@ pub fn GroupDetailPage() -> impl IntoView {
                                     </Card>
                                     </div>
 
+                                    <Show
+                                        when=move || managed().is_none()
+                                        fallback=move || managed().map(|m| view! {
+                                            <ManagedMembers members=members.get() managed=m />
+                                        })
+                                    >
                                     <Card>
                                         <Flex vertical=true gap=FlexGap::Medium padding=SpacingSize::Size200.inset()>
                                             <Flex vertical=true gap=FlexGap::Small>
@@ -446,6 +580,8 @@ pub fn GroupDetailPage() -> impl IntoView {
                                             </div>
                                         </Flex>
                                     </Card>
+                                    </Show>
+                                    <GroupResourceAccessCard group_id=group_id />
                                     <Dialog open=confirm_remove_open>
                                         <DialogSurface>
                                             <DialogBody>

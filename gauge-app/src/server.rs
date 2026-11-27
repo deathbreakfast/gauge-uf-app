@@ -23,6 +23,10 @@ use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 use uf_search_core::{SearchSourceItem, SearchSourceKey};
 
+use crate::resource_access::{
+    GroupResourceAccessRow, GroupRowDto, ManagedGroupDto, ResourceBundleDto, ResourceLink,
+};
+
 /// Permission name required for gauge admin mutations (manifest: [`crate::permissions::GaugePermission::GaugeAdmin`]).
 pub const GAUGE_ADMIN_PERMISSION: &str = "GaugeAdmin";
 
@@ -854,9 +858,12 @@ pub async fn list_my_active_service_users() -> Result<Vec<ServiceUserOption>, Se
 pub async fn list_my_permission_requests() -> Result<Vec<PermissionRequestRowDto>, ServerFnError> {
     let ctx = higgs::Higgs::from_request().await?;
     require_session(&ctx)?;
-    gauge::service::list_permission_requests_for_actor(&valence_from_ctx(&ctx)?)
+    let v = valence_from_ctx(&ctx)?;
+    let mut rows = gauge::service::list_permission_requests_for_actor(&v)
         .await
-        .map_err(|e| map_service_err("list my permission requests", e))
+        .map_err(|e| map_service_err("list my permission requests", e))?;
+    relabel_resource_requests(&v, &mut rows).await;
+    Ok(rows)
 }
 
 /// List permission requests awaiting current actor review.
@@ -865,9 +872,12 @@ pub async fn list_review_permission_requests() -> Result<Vec<PermissionRequestRo
 {
     let ctx = higgs::Higgs::from_request().await?;
     require_session(&ctx)?;
-    gauge::service::list_permission_requests_for_review(&valence_from_ctx(&ctx)?)
+    let v = valence_from_ctx(&ctx)?;
+    let mut rows = gauge::service::list_permission_requests_for_review(&v)
         .await
-        .map_err(|e| map_service_err("list review permission requests", e))
+        .map_err(|e| map_service_err("list review permission requests", e))?;
+    relabel_resource_requests(&v, &mut rows).await;
+    Ok(rows)
 }
 
 /// Get one permission request by id.
@@ -878,9 +888,14 @@ pub async fn get_permission_request(
 ) -> Result<Option<PermissionRequestRowDto>, ServerFnError> {
     let ctx = higgs::Higgs::from_request().await?;
     require_session(&ctx)?;
-    gauge::service::get_permission_request_detail(&request_id, &valence_from_ctx(&ctx)?)
+    let v = valence_from_ctx(&ctx)?;
+    let mut row = gauge::service::get_permission_request_detail(&request_id, &v)
         .await
-        .map_err(|e| map_service_err("load permission request", e))
+        .map_err(|e| map_service_err("load permission request", e))?;
+    if let Some(row) = row.as_mut() {
+        relabel_resource_requests(&v, std::slice::from_mut(row)).await;
+    }
+    Ok(row)
 }
 
 /// Approve or reject a permission request.
@@ -894,4 +909,333 @@ pub async fn decide_permission_request(
     gauge::service::decide_permission_request(input, &valence_from_ctx(&ctx)?)
         .await
         .map_err(|e| map_service_err("decide permission request", e))
+}
+
+/// The resource behind a resource-scoped domain, or `None` for a taxonomy domain.
+#[cfg(feature = "ssr")]
+async fn resource_link_for_domain(
+    v: &valence::Valence,
+    domain_id: &str,
+) -> Result<Option<ResourceLink>, ServerFnError> {
+    use crate::resource_access::{humanize_kind, kind_of_domain};
+
+    let Some(domain) = <gauge::generated::PermissionDomain as valence::Model>::get(domain_id, v, valence::use_!(r"When **Gauge** shows a **resource's permissions**, we **load the resource's permission domain** to find which resource (a job, a topic) it belongs to, so the page can name the resource and link back to it."))
+        .await
+        .map_err(|e| map_service_err("load resource domain", e))?
+    else {
+        return Ok(None);
+    };
+    if !*domain.resource_scoped() {
+        return Ok(None);
+    }
+    let Some(resource_id) = domain.resource_id().cloned() else {
+        return Ok(None);
+    };
+    let fragment = gauge::resource_permissions::normalize_id_fragment(&resource_id);
+    let Some(kind) = kind_of_domain(domain_id, &fragment) else {
+        return Ok(None);
+    };
+    let entry = crate::bridge::registered_resource_kind(kind);
+    Ok(Some(ResourceLink {
+        kind: kind.to_string(),
+        kind_label: entry.map_or_else(
+            || humanize_kind(kind),
+            |e| e.descriptor.display_label.to_string(),
+        ),
+        href: entry.map(|e| (e.href)(&resource_id)),
+        app: entry.map(|e| e.app.to_string()),
+        resource_id,
+        domain_id: domain_id.to_string(),
+    }))
+}
+
+/// The resource and role a request is for, when it targets a resource bundle.
+#[cfg(feature = "ssr")]
+async fn resource_of_request(
+    v: &valence::Valence,
+    target_kind: &gauge::types::PermissionRequestTargetKind,
+    target_id: &str,
+) -> Result<Option<(ResourceLink, String)>, ServerFnError> {
+    use crate::resource_access::{
+        action_of_permission_name, domain_of_owners_group, role_label_for_action,
+    };
+    use gauge::types::PermissionRequestTargetKind;
+
+    let (domain_id, role) = match target_kind {
+        PermissionRequestTargetKind::Group => match domain_of_owners_group(target_id) {
+            Some(domain_id) => (domain_id, "Owner".to_string()),
+            None => return Ok(None),
+        },
+        PermissionRequestTargetKind::Permission => {
+            let Some(permission) = gauge::service::get_permission_detail(target_id, v)
+                .await
+                .map_err(|e| map_service_err("load request permission", e))?
+            else {
+                return Ok(None);
+            };
+            let Some(action) = action_of_permission_name(&permission.name) else {
+                return Ok(None);
+            };
+            (permission.domain_id, role_label_for_action(action))
+        }
+    };
+    Ok(resource_link_for_domain(v, &domain_id)
+        .await?
+        .map(|link| (link, role)))
+}
+
+/// Rename resource requests to "Chronon job billing-rollup · Can view". A row whose
+/// resource can't be read keeps Gauge's own label; the failure is logged.
+#[cfg(feature = "ssr")]
+async fn relabel_resource_requests(v: &valence::Valence, rows: &mut [PermissionRequestRowDto]) {
+    for row in rows {
+        match resource_of_request(v, &row.target_kind, &row.target_id).await {
+            Ok(Some((link, role))) => {
+                row.target_label = crate::resource_access::request_label(&link, &role);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!(error = %e, request_id = %row.id, "resource request label failed");
+            }
+        }
+    }
+}
+
+/// The resource a request targets, with its link, for the request page.
+#[uf_product_macros::server]
+pub async fn get_request_resource(
+    /// Whether the request targets a permission or a group.
+    target_kind: gauge::types::PermissionRequestTargetKind,
+    /// The request's target id.
+    target_id: String,
+) -> Result<Option<ResourceLink>, ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    resource_of_request(&valence_from_ctx(&ctx)?, &target_kind, &target_id)
+        .await
+        .map(|found| found.map(|(link, _)| link))
+}
+
+/// The resource bundle behind a resource-scoped domain: the resource, each action's
+/// permission and holders, and the roles. `None` for a taxonomy domain.
+#[uf_product_macros::server]
+pub async fn get_resource_bundle(
+    /// Domain id, such as `rp_domain_chronon_job_billing_rollup_5c1e9a07`.
+    domain_id: String,
+) -> Result<Option<ResourceBundleDto>, ServerFnError> {
+    use crate::resource_access::{bundle_roles, BundlePermissionRow, ACTION_ORDER, OWNERS_PREFIX};
+
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    let v = valence_from_ctx(&ctx)?;
+    let Some(resource) = resource_link_for_domain(&v, &domain_id).await? else {
+        return Ok(None);
+    };
+    let fragment = gauge::resource_permissions::normalize_id_fragment(&resource.resource_id);
+    let name_prefix = format!("{}.{fragment}.", resource.kind);
+    let mut permissions: Vec<PermissionDetailDto> =
+        gauge::service::list_permissions(&v, Some(name_prefix.clone()))
+            .await
+            .map_err(|e| map_service_err("load resource bundle", e))?
+            .into_iter()
+            .filter(|p| p.domain_id == domain_id && p.name.starts_with(&name_prefix))
+            .collect();
+    let action = |p: &PermissionDetailDto| p.name[name_prefix.len()..].to_string();
+    permissions.sort_by_key(|p| ACTION_ORDER.iter().position(|a| *a == action(p)));
+
+    let owners_group_id = permissions.first().map_or_else(
+        || {
+            format!(
+                "{OWNERS_PREFIX}{}",
+                domain_id.trim_start_matches(crate::resource_access::DOMAIN_PREFIX)
+            )
+        },
+        |p| p.owners_group_id.clone(),
+    );
+    let holders_visible = permissions.iter().any(|p| !p.allow_list.is_empty());
+    let default_owner_id =
+        crate::bridge::registered_resource_kind(&resource.kind).and_then(|e| e.default_owner_group);
+    let default_owner = default_owner_id.map(|id| {
+        permissions
+            .iter()
+            .flat_map(|p| &p.allow_list)
+            .find(|holder| holder.id == id)
+            .map_or_else(|| id.to_string(), |holder| holder.label.clone())
+    });
+    let actions: Vec<String> = permissions.iter().map(action).collect();
+    let action_refs: Vec<&str> = actions.iter().map(String::as_str).collect();
+    let roles = bundle_roles(&action_refs, &owners_group_id);
+    let rows = permissions
+        .into_iter()
+        .zip(&actions)
+        .map(|(p, action)| BundlePermissionRow {
+            action: action.clone(),
+            permission_id: p.id,
+            permission_name: p.name,
+            held_by: p
+                .allow_list
+                .iter()
+                .map(|holder| {
+                    if holder.id == owners_group_id {
+                        "Owners".to_string()
+                    } else {
+                        holder.label.clone()
+                    }
+                })
+                .collect(),
+        })
+        .collect();
+
+    Ok(Some(ResourceBundleDto {
+        resource,
+        owners_group_id,
+        default_owner,
+        permissions: rows,
+        roles,
+        holders_visible,
+    }))
+}
+
+/// Management fields of a group another product syncs (a Polaron team), as a page shows them.
+#[cfg(feature = "ssr")]
+fn managed_dto(
+    group_id: &str,
+    group: &gauge::generated::PermissionGroup,
+) -> Option<ManagedGroupDto> {
+    let managed_by = group.managed_by()?.clone();
+    let external_ref = group.external_ref().cloned();
+    let (source_label, source_href) =
+        crate::resource_access::managed_source(&managed_by, group_id, external_ref.as_deref());
+    Some(ManagedGroupDto {
+        archived: group.managed_status().map(String::as_str) == Some("archived"),
+        managed_by,
+        source_label,
+        external_ref,
+        source_href,
+    })
+}
+
+/// List groups like [`list_groups`], with each managed (team) group's management.
+#[uf_product_macros::server]
+pub async fn list_group_rows(
+    /// Optional case-insensitive search text to filter groups by.
+    search: Option<String>,
+) -> Result<Vec<GroupRowDto>, ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    let v = valence_from_ctx(&ctx)?;
+    let groups = gauge::service::list_groups(&v, search)
+        .await
+        .map_err(|e| map_service_err("list groups", e))?;
+    let models = gauge::generated::PermissionGroup::query(&v, valence::use_!(r"When someone opens the **Groups** page in **Gauge**, we **list permission groups** to find the ones **another product manages** (Polaron teams), so the page can badge them as Teams and show whether the team is archived."))
+        .await
+        .map_err(|e| map_service_err("list groups", e))?;
+    let managed: std::collections::HashMap<String, ManagedGroupDto> = models
+        .iter()
+        .filter_map(|model| {
+            let id = model
+                .id()
+                .and_then(|t| valence::extract_id_from_record(t).ok())?;
+            let dto = managed_dto(&id, model)?;
+            Some((id, dto))
+        })
+        .collect();
+    Ok(groups
+        .into_iter()
+        .map(|group| GroupRowDto {
+            managed: managed.get(&group.id).cloned(),
+            group,
+        })
+        .collect())
+}
+
+/// The management of one group when another product syncs its members, else `None`.
+#[uf_product_macros::server]
+pub async fn get_group_managed(
+    /// Group id.
+    group_id: String,
+) -> Result<Option<ManagedGroupDto>, ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    let v = valence_from_ctx(&ctx)?;
+    let group = <gauge::generated::PermissionGroup as valence::Model>::get(&group_id, &v, valence::use_!(r"When someone opens a **group's page** in **Gauge**, we **load the group** to see whether **another product manages its members** (a Polaron team) and whether that team is archived, so the page can show its members read-only."))
+        .await
+        .map_err(|e| map_service_err("load group", e))?;
+    Ok(group.and_then(|g| managed_dto(&group_id, &g)))
+}
+
+/// The resources a group holds a role on: direct grants on a resource bundle, or a seat in
+/// a bundle's owners group. Grants Gauge withholds from the caller don't show.
+#[uf_product_macros::server]
+pub async fn list_group_resource_access(
+    /// Group id.
+    group_id: String,
+) -> Result<Vec<GroupResourceAccessRow>, ServerFnError> {
+    use crate::resource_access::{
+        action_of_permission_name, domain_of_owners_group, role_label_for_grants, DOMAIN_PREFIX,
+    };
+    use gauge::types::PrincipalKind;
+    use std::collections::BTreeMap;
+
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    let v = valence_from_ctx(&ctx)?;
+
+    // domain id → (bundle actions, actions the group holds, owner)
+    let mut bundles: BTreeMap<String, (Vec<String>, Vec<String>, bool)> = BTreeMap::new();
+    let permissions = gauge::service::list_permissions(&v, None)
+        .await
+        .map_err(|e| map_service_err("list group access", e))?;
+    for p in permissions {
+        if !p.domain_id.starts_with(DOMAIN_PREFIX) {
+            continue;
+        }
+        let Some(action) = action_of_permission_name(&p.name) else {
+            continue;
+        };
+        let held = p
+            .allow_list
+            .iter()
+            .any(|holder| holder.kind == PrincipalKind::Group && holder.id == group_id);
+        let bundle = bundles.entry(p.domain_id.clone()).or_default();
+        bundle.0.push(action.to_string());
+        if held {
+            bundle.1.push(action.to_string());
+        }
+    }
+    let groups = gauge::service::list_groups(&v, None)
+        .await
+        .map_err(|e| map_service_err("list group access", e))?;
+    for owners in groups {
+        let Some(domain_id) = domain_of_owners_group(&owners.id) else {
+            continue;
+        };
+        let seated = owners
+            .members
+            .iter()
+            .any(|m| m.kind == PrincipalKind::Group && m.id == group_id);
+        if seated {
+            bundles.entry(domain_id).or_default().2 = true;
+        }
+    }
+
+    let mut rows = Vec::new();
+    for (domain_id, (actions, held, owner)) in bundles {
+        let role = if owner {
+            Some("Owner".to_string())
+        } else {
+            let held: Vec<&str> = held.iter().map(String::as_str).collect();
+            let actions: Vec<&str> = actions.iter().map(String::as_str).collect();
+            role_label_for_grants(&held, &actions)
+        };
+        let Some(role) = role else {
+            continue;
+        };
+        let Some(resource) = resource_link_for_domain(&v, &domain_id).await? else {
+            continue;
+        };
+        rows.push(GroupResourceAccessRow { resource, role });
+    }
+    rows.sort_by_key(|row| row.resource.title());
+    Ok(rows)
 }

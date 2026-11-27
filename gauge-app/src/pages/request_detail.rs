@@ -1,14 +1,51 @@
-use gauge::types::PermissionRequestStatusDto;
+use gauge::types::{PermissionRequestStatusDto, PermissionRequestTargetKind};
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 use uf_product::components::{Body1, Caption1, Card};
 use uf_product::components::{ContentContainer, SpacingSize, Title3};
 use uf_product::primitives::{
-    Button, ButtonAppearance, Flex, FlexGap, FlexJustify, MessageBar, MessageBarIntent,
+    Button, ButtonAppearance, Flex, FlexGap, FlexJustify, Link, MessageBar, MessageBarIntent,
 };
 
 use crate::pages::step_up::spawn_with_step_up;
-use crate::server::{decide_permission_request, get_permission_request};
+use crate::server::{decide_permission_request, get_permission_request, get_request_resource};
+
+/// Links from a resource request to its resource: in its app when the host knows the
+/// route, and to the resource's permissions in Gauge. Nothing for other requests.
+#[component]
+fn RequestResourceLinks(
+    target_kind: PermissionRequestTargetKind,
+    target_id: String,
+) -> impl IntoView {
+    let resource = Resource::new(
+        move || (target_kind.clone(), target_id.clone()),
+        |(kind, id)| async move { get_request_resource(kind, id).await },
+    );
+    view! {
+        <Suspense fallback=|| ()>
+            {move || resource.get().and_then(Result::ok).flatten().map(|link| {
+                let open = link.href.clone().map(|href| {
+                    let app = link.app.clone().unwrap_or_default();
+                    view! {
+                        <span data-testid="gauge-request-resource-open">
+                            <Link href=href>{format!("Open in {app}")}</Link>
+                        </span>
+                    }
+                });
+                view! {
+                    <div data-testid="gauge-request-resource">
+                    <Flex gap=FlexGap::Medium>
+                        {open}
+                        <Link href=format!("/permission/domains/{}", link.domain_id)>
+                            {format!("Permissions for {}", link.title())}
+                        </Link>
+                    </Flex>
+                    </div>
+                }
+            })}
+        </Suspense>
+    }
+}
 
 const fn status_label(status: &PermissionRequestStatusDto) -> &'static str {
     match status {
@@ -71,6 +108,7 @@ pub fn RequestDetailPage() -> impl IntoView {
                                     <Card>
                                         <Flex vertical=true gap=FlexGap::Small padding=SpacingSize::Size200.inset()>
                                             <Body1>{format!("Target: {}", row.target_label)}</Body1>
+                                            <RequestResourceLinks target_kind=row.target_kind.clone() target_id=row.target_id.clone() />
                                             <Caption1>
                                                 {format!("Requestor: {}", row.requestor_user_id)}
                                             </Caption1>

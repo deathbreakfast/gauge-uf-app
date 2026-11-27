@@ -9,3 +9,6 @@ pub mod request_access;
 
 /// [`principal`] — kind label and icon for user, group and service-user rows.
 pub mod principal;
+
+/// [`resource_cards::ResourceBundleCard`] / [`resource_cards::GroupResourceAccessCard`] — a resource-scoped domain's resource, and the resources a group can reach.
+pub mod resource_cards;

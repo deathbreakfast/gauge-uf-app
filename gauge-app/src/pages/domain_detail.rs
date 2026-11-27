@@ -12,6 +12,7 @@ use uf_product::primitives::{
 };
 
 use crate::pages::principal_pick::{act_on_pick, to_picked, PickTarget};
+use crate::pages::shared::resource_cards::ResourceBundleCard;
 use crate::pages::step_up::spawn_with_step_up;
 use crate::server::{
     add_domain_owner_user, delete_domain, get_domain, remove_domain_owner_user, update_domain,
@@ -115,6 +116,10 @@ pub fn DomainDetailPage() -> impl IntoView {
                                         </Flex>
                                     </Card>
                                     </div>
+
+                                    <Show when=move || resource_scoped>
+                                        <ResourceBundleCard domain_id=domain_id />
+                                    </Show>
 
                                     <Show when=move || !resource_scoped>
                                         <Card>

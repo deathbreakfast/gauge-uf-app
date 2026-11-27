@@ -65,4 +65,7 @@ allow-git = [
     "https://github.com/unified-field-dev/uf-notifications",
     "https://github.com/unified-field-dev/unified-field-product",
     "https://github.com/unified-field-dev/valence",
+    # Resource access ships on these forks first; drop with the [patch] entries in Cargo.toml.
+    "https://github.com/deathbreakfast/gauge",
+    "https://github.com/deathbreakfast/unified-field-product",
 ]

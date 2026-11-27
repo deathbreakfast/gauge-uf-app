@@ -8,6 +8,8 @@ mod gate_demos;
 mod harness_auth_menu;
 mod permission_routes_eager;
 #[cfg(feature = "ssr")]
+mod resource_access_seed;
+#[cfg(feature = "ssr")]
 pub mod seed;
 
 pub use app::{shell, App};

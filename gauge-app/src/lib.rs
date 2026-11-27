@@ -35,6 +35,13 @@
 //!   inventory `/permission/permissions`.
 //!   [Get started](#help-spotlight-tours)
 //!
+//! - **Resource bundles and team groups** — A resource-scoped domain's page names its
+//!   resource, links back to it, and lists each action's permission, its holders and the
+//!   roles. Groups another product manages (Polaron teams) get a Teams tab, read-only
+//!   members and an "Access through this group" card, and resource requests read as
+//!   "Chronon job billing-rollup · Can view" ([`mod@resource_access`]).
+//!   [Get started](#serve-resource-access-from-gauge)
+//!
 //! Hosts supply Valence, session chrome, and identity. Schemas, grant
 //! resolution, and Super User bootstrap stay in `gauge`.
 //!
@@ -176,6 +183,36 @@
 //!
 //! Next: page modules under [`pages`], or domain APIs in `gauge`.
 //!
+//! ## Serve resource access from Gauge
+//!
+//! Apps show who can use one of their resources through uf-product's Access card, and
+//! Gauge answers it: `GaugeResourceAccessBackend` reads the resource's bundle and changes
+//! roles as the signed-in caller. Gauge keeps no list of resource kinds, so the host
+//! registers each kind it serves with `register_resource_kind`, which also gives Gauge's
+//! domain and request pages the "Open in {app}" link. Do both at boot, before serving.
+//!
+//! **Prerequisites:** `ssr`; the resource's bundle ensured at boot or on create (see
+//! `gauge::resource_permissions`).
+//!
+//! ```rust,ignore
+//! use std::sync::Arc;
+//!
+//! gauge_app::register_resource_kind(gauge_app::ResourceKindEntry {
+//!     descriptor: chronon_app::permissions::CHRONON_JOB,
+//!     app: "Chronon",
+//!     href: |id| format!("/chronon/jobs/{id}"),
+//!     default_owner_group: Some("chronon.admins"),
+//! });
+//! // In the per-request context, beside wire_gauge_permissions():
+//! uf_product::access::provide_resource_access_backend(Arc::new(
+//!     gauge_app::GaugeResourceAccessBackend,
+//! ));
+//! ```
+//!
+//! On success the app's Access card lists the resource's roles, and the bundle's domain
+//! page in Gauge links back to the resource. An unregistered kind still shows on the
+//! domain page, without the link, and the backend refuses role changes for it.
+//!
 //! ## Feature flags
 //!
 //! | Flag | What it enables |
@@ -190,6 +227,8 @@
 //! |---------|--------|
 //! | Mount + Features guide | this crate root |
 //! | Higgs server wrappers | [`mod@server`] |
+//! | Resource bundle and team group DTOs | [`mod@resource_access`] |
+//! | Resource access backend, kind registry (SSR) | `GaugeResourceAccessBackend`, `register_resource_kind` |
 //! | Pages / routes | [`pages`], lazy re-exports on this root |
 //! | Help spotlight inventory | [`mod@help_steps`]; call [`ensure_help_steps_linked`] |
 //! | Shell / layout | [`shell`], [`PermissionLayout`] |
@@ -225,6 +264,7 @@ pub mod layout;
 mod lazy_routes;
 pub mod pages;
 pub mod permissions;
+pub mod resource_access;
 pub mod server;
 pub mod shell;
 
@@ -233,7 +273,10 @@ pub mod shell;
 pub mod e2e_lab;
 
 #[cfg(feature = "ssr")]
-pub use bridge::wire_gauge_permissions;
+pub use bridge::{
+    register_resource_kind, registered_resource_kind, wire_gauge_permissions,
+    GaugeResourceAccessBackend, ResourceKindEntry,
+};
 
 pub use help_steps::ensure_help_steps_linked;
 pub use layout::PermissionLayout;

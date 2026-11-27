@@ -46,6 +46,8 @@ pub struct FixtureIds {
     pub service_user_handle: String,
     /// Active service user owned by `admin`, which `requestor` may not request for.
     pub foreign_service_user_handle: String,
+    /// Resource bundle, team groups and resource request.
+    pub resource: crate::resource_access_seed::ResourceFixtures,
 }
 
 static E2E_STATE: OnceLock<Arc<E2eState>> = OnceLock::new();
@@ -321,6 +323,9 @@ async fn seed_service_users(system: &Valence) {
 
 async fn seed_super_user_with_member(system: &Valence, member_user_id: &str) {
     let super_group = gauge::generated::PermissionGroup::new(
+        None,
+        None,
+        None,
         SUPER_USER_GROUP_NAME.to_string(),
         Some("super users".to_string()),
         Utc::now(),
@@ -485,9 +490,12 @@ pub async fn init_e2e_valence() {
         .await
         .expect("grant GaugeAdmin to admin");
 
-    let fixtures = bootstrap_fixtures(&system, &admin_ctx)
+    let mut fixtures = bootstrap_fixtures(&system, &admin_ctx)
         .await
         .expect("bootstrap fixtures");
+    fixtures.resource = crate::resource_access_seed::seed_resource_access(&system)
+        .await
+        .expect("seed resource access");
 
     demote_admin_from_super_user(&system).await;
 
@@ -603,6 +611,7 @@ async fn bootstrap_fixtures(system: &Valence, admin_ctx: &Valence) -> anyhow::Re
         child_group_id: record_pk_id(child.id()),
         service_user_handle: REQUESTOR_SERVICE_USER.into(),
         foreign_service_user_handle: ADMIN_SERVICE_USER.into(),
+        resource: Default::default(),
     })
 }
 

@@ -229,6 +229,10 @@ pub async fn seed_data(
             "child_group_id": fixtures.child_group_id,
             "service_user_handle": fixtures.service_user_handle,
             "foreign_service_user_handle": fixtures.foreign_service_user_handle,
+            "resource_domain_id": fixtures.resource.resource_domain_id,
+            "team_group_id": fixtures.resource.team_group_id,
+            "archived_team_group_id": fixtures.resource.archived_team_group_id,
+            "resource_request_id": fixtures.resource.resource_request_id,
         }
     })))
 }
