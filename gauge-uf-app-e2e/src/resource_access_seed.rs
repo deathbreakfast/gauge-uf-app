@@ -101,7 +101,8 @@ pub async fn seed_resource_access(system: &Valence) -> anyhow::Result<ResourceFi
     let admin = system.with_actor(Actor::User {
         user_id: "admin".to_string(),
     });
-    for user in ["requestor", "outsider"] {
+    // Not requestor: they ask for Can view below, which a team seat would already give.
+    for user in ["outsider", "unverified"] {
         service::add_group_member_user(TEAM_GROUP_ID, user, system).await?;
     }
     set_principal_role(
