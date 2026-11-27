@@ -1,6 +1,6 @@
 //! Resource bundle and team group fixtures for the resource-access specs.
 //!
-//! Seeds, as the boot System actor: a Chronon-job-like kind registered with Gauge, one
+//! Seeds, as the boot System actor (role grants as `admin`, the bundle's owner): a Chronon-job-like kind registered with Gauge, one
 //! code-declared bundle owned by the "Chronon admins" group (which `admin` owns), an active
 //! Polaron team group with Can edit and an archived one with Can run, and a pending request
 //! from `requestor` for Can view.
@@ -97,11 +97,15 @@ pub async fn seed_resource_access(system: &Valence) -> anyhow::Result<ResourceFi
         system,
     )
     .await?;
+    // Role changes need a signed-in owner; admin owns the bundle through Chronon admins.
+    let admin = system.with_actor(Actor::User {
+        user_id: "admin".to_string(),
+    });
     for user in ["requestor", "outsider"] {
         service::add_group_member_user(TEAM_GROUP_ID, user, system).await?;
     }
     set_principal_role(
-        system,
+        &admin,
         E2E_JOB,
         JOB_ID,
         (PrincipalKind::Group, TEAM_GROUP_ID),
@@ -120,7 +124,7 @@ pub async fn seed_resource_access(system: &Valence) -> anyhow::Result<ResourceFi
     )
     .await?;
     set_principal_role(
-        system,
+        &admin,
         E2E_JOB,
         JOB_ID,
         (PrincipalKind::Group, ARCHIVED_TEAM_GROUP_ID),
