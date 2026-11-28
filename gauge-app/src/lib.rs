@@ -19,14 +19,12 @@
 //!   membership changes use [`pages::step_up::spawn_with_fresh_totp`].
 //!   [Get started](#add-step-up-to-a-privilege-mutation)
 //!
-//! - **Show History** — Permission and group detail pages open a dialog with a
-//!   paginated Record History timeline ([`pages::shared::history_dialog::HistoryDialog`]).
-//!   The page loader ([`server::get_gauge_history_page_by_cursor`]) pages by
-//!   cursor, so long histories don't re-read earlier entries. It requires a session and
-//!   can-edit on the source (`gauge::service::actor_can_view_history_subject`);
-//!   denied viewers see the same "Not authorized to view this history"
-//!   MessageBar as the server error.
-//!   [Get started](#show-history-on-detail-pages)
+//! - **Activity tab** — Permission, group and domain pages list each change by name
+//!   (When, Who, What changed) in an Activity tab
+//!   ([`pages::shared::record_activity::RecordActivity`]), loaded through
+//!   [`server::get_record_activity`]: Gauge's change log for Gauge admins, the record's
+//!   history rows for its owners.
+//!   [Get started](#activity-on-detail-pages)
 //!
 //! - **Help spotlight tours** — Route-scoped Help steps under [`mod@help_steps`]
 //!   (permissions, create flows, detail pages, groups, requests). Hosts enable
@@ -112,50 +110,26 @@
 //! On `STEP_UP:step_up_required` / `_expired`, helper opens dialog, verifies
 //! TOTP, retries once; assert completed.
 //!
-//! ## Show History on detail pages
+//! ## Activity on detail pages
 //!
-//! Detail pages embed [`HistoryDialog`](pages::shared::history_dialog::HistoryDialog)
-//! so editors can open a paginated audit timeline without leaving the subject.
-//! The dialog loads when the request opens it; [`get_gauge_history_page_by_cursor`](server::get_gauge_history_page_by_cursor)
-//! enforces session + can-edit on every page, then pages Record History rows by
-//! cursor. [`get_gauge_history_page`](server::get_gauge_history_page) is the same
-//! fetch by offset only.
+//! Detail pages put [`RecordActivity`](pages::shared::record_activity::RecordActivity)
+//! in their Activity tab. It loads when the tab opens, in its own `Suspense`, so the page
+//! around it never falls back.
 //!
-//! **Prerequisites:** Mounted [`PermissionRoutes`]; authenticated session; actor
-//! who can edit the permission or group (or Super User).
+//! **Prerequisites:** Mounted [`PermissionRoutes`]; authenticated session; a Gauge admin
+//! or an owner of the record.
 //!
 //! ```rust,ignore
-//! use gauge_app::pages::shared::history_dialog::HistoryDialog;
-//! use gauge_app::server::get_gauge_history_page_by_cursor;
+//! use gauge::types::{RecordKind, RecordRef};
+//! use gauge_app::pages::shared::record_activity::RecordActivity;
 //! use leptos::prelude::*;
-//! use valence::RecordId;
 //!
-//! let subject_kind = Signal::derive(|| "permission".to_string());
-//! let subject_id = Signal::derive(|| permission_id.get());
-//! view! {
-//!     <HistoryDialog
-//!         subject_kind=subject_kind
-//!         subject_id=subject_id
-//!         trigger_id="gauge-show-history"
-//!     />
-//! }
-//! // SSR path used by the timeline fetcher (can-edit ACL):
-//! let source = RecordId::new("permission", &permission_id.get());
-//! let kinds = Some(vec!["permission_history".into()]);
-//! let page = get_gauge_history_page_by_cursor(0, 25, source.clone(), kinds.clone(), None).await?;
-//! assert!(!page.items.is_empty() || !page.has_more);
-//! if page.has_more {
-//!     // The next page continues after this one's last entry.
-//!     let offset = page.next_request_offset.unwrap_or(25);
-//!     let next = get_gauge_history_page_by_cursor(offset, 25, source, kinds, page.next_cursor).await?;
-//!     assert!(next.items.len() <= 25);
-//! }
-//! assert!(!permission_id.get().is_empty());
+//! let record = RecordRef { kind: RecordKind::Group, id: group_id, label: group_name };
+//! view! { <RecordActivity record=record /> }
 //! ```
 //!
-//! On success the dialog shows Orbital timeline rows (relation grants as
-//! Added/Removed with Avatar). Actors without can-edit get the deny MessageBar
-//! (`Not authorized to view this history`) instead of rows.
+//! Each row names who made the change and what changed ("Added Ravi Menon to the group").
+//! Anyone else sees "You don't have access" instead of rows.
 //!
 //! ## Help spotlight tours
 //!
@@ -257,6 +231,8 @@ use leptos_router::{
 use uf_product_macros::uf_app;
 
 mod bridge;
+/// Shared page pieces such as the error bar.
+pub mod components;
 /// Help spotlight tour step inventory for Permission routes.
 pub mod help_steps;
 /// Shell layout wrapping routed pages ([`PermissionLayout`]).

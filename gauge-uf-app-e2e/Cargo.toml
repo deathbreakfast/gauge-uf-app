@@ -29,8 +29,11 @@ lepton = { workspace = true, optional = true }
 # SSR only: registers the `lepton_service_users` search source for the person pickers.
 lepton-app = { workspace = true, default-features = false, optional = true }
 lepton-auth = { workspace = true, default-features = false, optional = true }
+# The step-up controller, provided at the root so pages and the avatar menu's dialog share it.
+lepton-auth-ui = { workspace = true, default-features = false }
 lepton-identity = { workspace = true, optional = true }
-# SSR only: the axum-login backend lepton's people search reads the signed-in user from.
+# SSR only: the axum-login backend lepton's step-up reads the signed-in user from, and
+# the TOTP factor model that enrolls the lab admin's authenticator.
 lepton-host-adapter = { workspace = true, default-features = false, optional = true }
 leptos = { workspace = true }
 leptos_axum = { workspace = true, optional = true, default-features = true }
@@ -54,6 +57,7 @@ wasm-bindgen = { workspace = true, optional = true }
 default = []
 hydrate = [
     "leptos/hydrate",
+    "lepton-auth-ui/hydrate",
     "gauge-app/hydrate",
     "uf-product/hydrate",
     "uf-integrations/hydrate",
@@ -66,6 +70,7 @@ hydrate = [
 ]
 ssr = [
     "leptos/ssr",
+    "lepton-auth-ui/ssr",
     "leptos_meta/ssr",
     "leptos_router/ssr",
     "gauge-app/ssr",
@@ -95,6 +100,8 @@ ssr = [
     "lepton/ssr",
     "dep:lepton-auth",
     "lepton-auth/ssr",
+    # Step-up code checks and authenticator status (gauge-app turns it on too).
+    "lepton-auth/totp",
     "dep:lepton-identity",
     "dep:lepton-app",
     "lepton-app/ssr",

@@ -33,6 +33,10 @@ pub fn App() -> impl IntoView {
         gauge_app::wire_gauge_permissions();
     }
     provide_shell_auth_menu(|| view! { <HarnessAuthMenu /> });
+    // Provide the step-up controller at the root, so the pages and the dialog that
+    // lepton-shell's avatar menu mounts share it. Left to the menu, it lands in the menu's
+    // own subtree, where the pages can't reach it.
+    lepton_auth_ui::provide_step_up_controller();
 
     view! {
         <OrbitalTemplate>

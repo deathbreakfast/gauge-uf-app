@@ -3,71 +3,31 @@ import {
   expect,
   seedAuth,
   waitForHydrated,
-  expectMutationDenied,
   PEOPLE,
   pickPrincipal,
-  userRow,
+  stepUpDialog,
+  totpCode,
 } from "./fixtures";
+import type { Page } from "@playwright/test";
 
-const OWNERS = "gauge-group-owners-picker";
-const MEMBERS = "gauge-group-members-picker";
-const REQUESTOR = userRow("requestor");
-
-function textIn(row: import("@playwright/test").Locator, label: string | RegExp) {
-  return typeof label === "string" ? row.getByText(label, { exact: true }) : row.getByText(label);
+async function openGroup(page: Page, id: string) {
+  await page.goto(`/permission/groups/${encodeURIComponent(id)}`, { waitUntil: "domcontentloaded" });
+  await waitForHydrated(page);
 }
 
-async function rolePrincipalPresent(
-  page: import("@playwright/test").Page,
-  role: "owner" | "member",
-  label: string | RegExp,
-): Promise<boolean> {
-  const aria = role === "owner" ? "Open owner actions" : "Open member actions";
-  const buttons = page.getByRole("button", { name: new RegExp(`^${aria}$`, "i") });
-  const n = await buttons.count();
-  for (let i = 0; i < n; i++) {
-    // Innermost ancestor that contains exactly one actions button = this row.
-    const row = buttons
-      .nth(i)
-      .locator(`xpath=ancestor::div[count(.//*[@aria-label='${aria}'])=1][1]`);
-    if ((await textIn(row, label).count()) > 0) return true;
-  }
-  return false;
+async function openTab(page: Page, name: RegExp) {
+  await page.locator("#gauge-group-tabs").getByRole("tab", { name }).click();
 }
 
-async function expectRolePrincipal(
-  page: import("@playwright/test").Page,
-  role: "owner" | "member",
-  label: string | RegExp,
-) {
-  await expect
-    .poll(async () => rolePrincipalPresent(page, role, label), { timeout: 60_000 })
-    .toBe(true);
+/** Open the row menu for `name` inside `scope` and pick `item`. */
+async function rowMenu(page: Page, scope: string, name: string, item: string) {
+  await page
+    .getByTestId(scope)
+    .getByRole("button", { name: new RegExp(`^Actions for ${name}`) })
+    .first()
+    .click();
+  await page.getByRole("menuitem", { name: item, exact: true }).click();
 }
-
-async function openRoleActions(
-  page: import("@playwright/test").Page,
-  role: "owner" | "member",
-  label: string | RegExp,
-) {
-  const aria = role === "owner" ? "Open owner actions" : "Open member actions";
-  await expect
-    .poll(async () => rolePrincipalPresent(page, role, label), { timeout: 60_000 })
-    .toBe(true);
-  const buttons = page.getByRole("button", { name: new RegExp(`^${aria}$`, "i") });
-  const n = await buttons.count();
-  for (let i = 0; i < n; i++) {
-    const row = buttons
-      .nth(i)
-      .locator(`xpath=ancestor::div[count(.//*[@aria-label='${aria}'])=1][1]`);
-    if ((await textIn(row, label).count()) > 0) {
-      await buttons.nth(i).click();
-      return;
-    }
-  }
-  throw new Error(`openRoleActions: no ${role} row for ${label}`);
-}
-
 
 test.describe("e2e.group.index", () => {
   test("e2e.group.index.load_happy", async ({ page }) => {
@@ -128,9 +88,9 @@ test.describe("e2e.group.create", () => {
     await seedAuth(page, "requestor");
     await page.goto("/permission/create-group", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
-    await page.getByLabel(/Display name/i).fill("BlockedGroup");
-    await page.getByRole("button", { name: /Create Group/i }).click();
-    await expectMutationDenied(page);
+    const denied = page.getByTestId("gauge-denied-page");
+    await expect(denied.getByText("Creating groups needs GaugeAdmin")).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator("#gauge-create-group-form")).toHaveCount(0);
   });
 
   test("e2e.group.create.empty_name", async ({ page }) => {
@@ -159,328 +119,162 @@ test.describe("e2e.group.create", () => {
 
 test.describe("e2e.group.detail", () => {
   test("e2e.group.detail.load_happy", async ({ page }) => {
+    const { fixtures } = await seedAuth(page, "admin", false, { resetReleaseCaptains: true });
+    await openGroup(page, fixtures.release_group_id);
+    await expect(page.getByRole("heading", { name: "Release Captains" })).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId("gauge-group-owner-caption")).toContainText(
+      "Owners approve requests to join and add or remove members; each change asks for their authenticator code.",
+    );
+    const members = page.getByTestId("gauge-group-members");
+    await expect(members.getByText(PEOPLE.requestor).first()).toBeVisible({ timeout: 60_000 });
+    await expect(members.getByText("On-call SRE").first()).toBeVisible();
+    await expect(page.locator("#gauge-group-add-members").getByRole("button")).toBeVisible();
+  });
+
+  test("e2e.group.detail.access_tab", async ({ page }) => {
     const { fixtures } = await seedAuth(page, "admin");
-    await page.goto(`/permission/groups/${fixtures.group_id}`, {
-      waitUntil: "domcontentloaded",
-    });
-    await waitForHydrated(page);
-    await expect(page.getByLabel(/^Name$/i)).toHaveValue("Deployers", { timeout: 60_000 });
+    await openGroup(page, fixtures.release_group_id);
+    await openTab(page, /Access/);
+    const access = page.getByTestId("gauge-group-access");
+    await expect(access.getByText("What every member gets from this group.", { exact: false })).toBeVisible();
+    await expect(access.getByText("Approve releases", { exact: true })).toBeVisible({ timeout: 60_000 });
   });
 
-  test("e2e.group.detail.add_member_user", async ({ page }) => {
-    const { fixtures } = await seedAuth(page, "admin");
-    await page.goto(`/permission/groups/${fixtures.group_id}`, {
-      waitUntil: "domcontentloaded",
+  test("e2e.group.detail.remove_shows_loses_keeps_then_code", async ({ page }) => {
+    const { fixtures } = await seedAuth(page, "admin", false, {
+      resetReleaseCaptains: true,
+      stepUpWindow: "none",
     });
-    await waitForHydrated(page);
-    if (!(await rolePrincipalPresent(page, "member", REQUESTOR))) {
-      await pickPrincipal(page, MEMBERS, "Rae", PEOPLE.requestor);
-    }
-    await expectRolePrincipal(page, "member", REQUESTOR);
+    await openGroup(page, fixtures.release_group_id);
+    await rowMenu(page, "gauge-group-members", PEOPLE.requestor, "Remove");
+    const confirm = page.getByTestId("gauge-remove-confirm");
+    await expect(confirm.getByTestId("gauge-remove-loses")).toContainText("Rae loses", { timeout: 30_000 });
+    await expect(confirm.getByTestId("gauge-remove-loses")).toContainText("Approve releases");
+    await expect(confirm.getByTestId("gauge-remove-keeps")).toContainText("Rae keeps");
+    await expect(confirm).toContainText("You'll confirm with your authenticator code.");
+    await page.getByTestId("gauge-remove-confirm-button").click();
+    const dialog = stepUpDialog(page);
+    await expect(dialog.getByTestId("step-up-description")).toContainText(
+      `Type the code from your authenticator app to confirm: Remove ${PEOPLE.requestor}`,
+      { timeout: 60_000 },
+    );
+    await dialog.getByTestId("step-up-cancel").getByRole("button").click();
   });
 
-  test("e2e.group.detail.add_member_group", async ({ page }) => {
-    const { fixtures } = await seedAuth(page, "admin");
-    await page.goto(`/permission/groups/${fixtures.group_id}`, {
-      waitUntil: "domcontentloaded",
-    });
-    await waitForHydrated(page);
-    if (!(await rolePrincipalPresent(page, "member", "NestedDeployers"))) {
-      await pickPrincipal(page, MEMBERS, "NestedDeployers", "NestedDeployers", true);
-    }
-    await expectRolePrincipal(page, "member", "NestedDeployers");
-  });
-
-  // pw-gauge-group-su-member-happy
-  test("e2e.group.detail.su_member_happy", async ({ page }) => {
-    const { fixtures } = await seedAuth(page, "admin", false, { serviceUserMember: true });
-    await page.goto(`/permission/groups/${fixtures.group_id}`, {
-      waitUntil: "domcontentloaded",
-    });
-    await waitForHydrated(page);
-    await expectRolePrincipal(page, "member", fixtures.foreign_service_user_handle);
-    // Kind and owner come from the service user, not the user fallback.
-    await expect(page.getByText(/^service user \(.+\), owner /i)).toBeVisible({
-      timeout: 30_000,
+  test("e2e.group.detail.owner_without_admin_removes_member", async ({ page }) => {
+    const { fixtures } = await seedAuth(page, "outsider", false, { resetReleaseCaptains: true });
+    await openGroup(page, fixtures.release_group_id);
+    // Otto owns the group but isn't a Gauge admin: no More menu, but Add members and Remove.
+    await expect(page.locator("#gauge-group-add-members").getByRole("button")).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator("#gauge-group-more")).toHaveCount(0);
+    await rowMenu(page, "gauge-group-members", PEOPLE.requestor, "Remove");
+    await page.getByTestId("gauge-remove-confirm-button").click();
+    const notice = page.getByTestId("gauge-group-notice");
+    await expect(notice).toContainText(`${PEOPLE.requestor} removed from Release Captains`, { timeout: 60_000 });
+    await expect(notice.getByTestId("gauge-group-undo")).toBeVisible();
+    await notice.getByTestId("gauge-group-undo").getByRole("button").click();
+    await expect(page.getByTestId("gauge-group-members").getByText(PEOPLE.requestor).first()).toBeVisible({
+      timeout: 60_000,
     });
   });
 
-  // pw-gauge-group-su-remove-happy
-  test("e2e.group.detail.su_remove_happy", async ({ page }) => {
-    const { fixtures } = await seedAuth(page, "admin", false, { serviceUserMember: true });
-    await page.goto(`/permission/groups/${fixtures.group_id}`, {
-      waitUntil: "domcontentloaded",
+  test("e2e.group.detail.owner_removal_needs_code_without_window", async ({ page }) => {
+    const { fixtures } = await seedAuth(page, "admin", false, {
+      resetReleaseCaptains: true,
+      stepUpWindow: "none",
     });
-    await waitForHydrated(page);
-    await openRoleActions(page, "member", fixtures.foreign_service_user_handle);
-    await page.getByRole("menuitem", { name: /^Remove$/i }).click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible({ timeout: 15_000 });
-    await dialog.getByRole("button", { name: /^Remove$/i }).click();
-    await expect(dialog).toHaveCount(0, { timeout: 60_000 });
-    await expect
-      .poll(async () => rolePrincipalPresent(page, "member", fixtures.foreign_service_user_handle), {
-        timeout: 60_000,
-      })
-      .toBe(false);
+    await openGroup(page, fixtures.release_group_id);
+    await openTab(page, /Owners/);
+    await rowMenu(page, "gauge-group-owners", PEOPLE.outsider, "Remove as owner");
+    const confirm = page.getByTestId("gauge-group-owner-remove-confirm");
+    await expect(confirm).toContainText("Otto stops approving requests to join Release Captains");
+    await page.getByTestId("gauge-group-owner-remove-button").click();
+    await expect(stepUpDialog(page).getByTestId("step-up-description")).toContainText(
+      `to confirm: Remove ${PEOPLE.outsider} as an owner of Release Captains.`,
+      { timeout: 60_000 },
+    );
+    await stepUpDialog(page).getByTestId("step-up-cancel").getByRole("button").click();
   });
 
-  test("e2e.group.detail.remove_member_user", async ({ page }) => {
-    const { fixtures } = await seedAuth(page, "admin");
-    await page.goto(`/permission/groups/${fixtures.group_id}`, {
-      waitUntil: "domcontentloaded",
-    });
-    await waitForHydrated(page);
-    if (!(await rolePrincipalPresent(page, "member", REQUESTOR))) {
-      await pickPrincipal(page, MEMBERS, "Rae", PEOPLE.requestor);
-      await expectRolePrincipal(page, "member", REQUESTOR);
-    }
-    await openRoleActions(page, "member", REQUESTOR);
-    await page.getByRole("menuitem", { name: /^Remove$/i }).click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible({ timeout: 15_000 });
-    await dialog.getByRole("button", { name: /^Remove$/i }).click();
-    await expect(dialog).toHaveCount(0, { timeout: 60_000 });
-    await expect
-      .poll(async () => rolePrincipalPresent(page, "member", REQUESTOR), { timeout: 60_000 })
-      .toBe(false);
+  test("e2e.group.detail.owner_removal_with_recent_code", async ({ page }) => {
+    const { fixtures } = await seedAuth(page, "admin", false, { resetReleaseCaptains: true });
+    await openGroup(page, fixtures.release_group_id);
+    await openTab(page, /Owners/);
+    await rowMenu(page, "gauge-group-owners", PEOPLE.outsider, "Remove as owner");
+    await page.getByTestId("gauge-group-owner-remove-button").click();
+    await expect(page.getByTestId("gauge-group-notice")).toContainText(
+      `${PEOPLE.outsider} is no longer an owner of Release Captains`,
+      { timeout: 60_000 },
+    );
+    await expect(stepUpDialog(page)).toHaveCount(0);
+    await seedAuth(page, "admin", false, { resetReleaseCaptains: true });
   });
 
-  test("e2e.group.detail.add_owner", async ({ page }) => {
-    const { fixtures } = await seedAuth(page, "admin");
-    await page.goto(`/permission/groups/${fixtures.group_id}`, {
-      waitUntil: "domcontentloaded",
-    });
-    await waitForHydrated(page);
-    if (!(await rolePrincipalPresent(page, "owner", REQUESTOR))) {
-      await pickPrincipal(page, OWNERS, "Rae", PEOPLE.requestor);
-    }
-    await expectRolePrincipal(page, "owner", REQUESTOR);
+  test("e2e.group.detail.super_user_owner_removal_asks_fresh_code", async ({ page }) => {
+    // Kenji owns Super User; only its owners and Super Users can see who owns it.
+    await seedAuth(page, "kenji");
+    await openGroup(page, "super_user_group");
+    await expect(page.getByTestId("gauge-group-super-user-warning")).toContainText(
+      "Members can do everything in every app",
+      { timeout: 60_000 },
+    );
+    await openTab(page, /Owners/);
+    await rowMenu(page, "gauge-group-owners", PEOPLE.kenji, "Remove as owner");
+    const confirm = page.getByTestId("gauge-group-owner-remove-confirm");
+    await expect(confirm).toContainText("Super User changes need a fresh authenticator code.");
+    await page.getByTestId("gauge-group-owner-remove-button").click();
+    const dialog = stepUpDialog(page);
+    // A recent code is on file, but Super User still asks for a fresh one.
+    await expect(dialog.getByTestId("step-up-description")).toContainText(
+      `to confirm: Remove ${PEOPLE.kenji} as an owner of Super User.`,
+      { timeout: 60_000 },
+    );
+    await expect(dialog.getByTestId("step-up-description")).toContainText(
+      "Super User changes need a fresh code, even if you typed one a minute ago.",
+    );
+    await dialog.getByTestId("step-up-cancel").getByRole("button").click();
   });
 
-  test("e2e.group.detail.remove_owner", async ({ page }) => {
-    const { fixtures } = await seedAuth(page, "admin");
-    await page.goto(`/permission/groups/${fixtures.group_id}`, {
-      waitUntil: "domcontentloaded",
+  test("e2e.group.detail.add_member_with_code", async ({ page }) => {
+    const { fixtures } = await seedAuth(page, "admin", false, { stepUpWindow: "none" });
+    await openGroup(page, fixtures.child_group_id);
+    await page.locator("#gauge-group-add-members").getByRole("button").click();
+    await pickPrincipal(page, "gauge-group-members-picker", "Otto", PEOPLE.outsider);
+    const dialog = stepUpDialog(page);
+    await expect(dialog).toBeVisible({ timeout: 60_000 });
+    await dialog.getByTestId("step-up-totp").locator("input").fill(totpCode());
+    await dialog.getByTestId("step-up-submit").getByRole("button").click();
+    await expect(page.getByTestId("gauge-group-members").getByText(PEOPLE.outsider).first()).toBeVisible({
+      timeout: 60_000,
     });
-    await waitForHydrated(page);
-    if (!(await rolePrincipalPresent(page, "owner", REQUESTOR))) {
-      await pickPrincipal(page, OWNERS, "Rae", PEOPLE.requestor);
-      await expectRolePrincipal(page, "owner", REQUESTOR);
-    }
-    await openRoleActions(page, "owner", REQUESTOR);
-    await page.getByRole("menuitem", { name: /Remove Owner/i }).click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible({ timeout: 15_000 });
-    await dialog.getByRole("button", { name: /Remove Owner/i }).click();
-    await expect(dialog).toHaveCount(0, { timeout: 60_000 });
-    await expect
-      .poll(async () => rolePrincipalPresent(page, "owner", REQUESTOR), { timeout: 60_000 })
-      .toBe(false);
   });
 
-  test("e2e.group.detail.owner_picker_no_admin", async ({ page }) => {
-    const { fixtures } = await seedAuth(page, "requestor");
-    await page.goto(`/permission/groups/${fixtures.group_id}`, {
-      waitUntil: "domcontentloaded",
+  test("e2e.group.detail.activity_names_people", async ({ page }) => {
+    const { fixtures } = await seedAuth(page, "admin", false, { resetReleaseCaptains: true });
+    await openGroup(page, fixtures.release_group_id);
+    await openTab(page, /Activity/);
+    const activity = page.getByTestId("gauge-record-activity");
+    await expect(activity.getByText(new RegExp(`Added ${PEOPLE.requestor}.* to the group`)).first()).toBeVisible({
+      timeout: 60_000,
     });
-    await waitForHydrated(page);
-    await pickPrincipal(page, OWNERS, "Otto", PEOPLE.outsider);
-    await expectMutationDenied(page);
-  });
-
-  test("e2e.group.detail.member_picker_no_admin", async ({ page }) => {
-    const { fixtures } = await seedAuth(page, "requestor");
-    await page.goto(`/permission/groups/${fixtures.group_id}`, {
-      waitUntil: "domcontentloaded",
-    });
-    await waitForHydrated(page);
-    await pickPrincipal(page, MEMBERS, "Otto", PEOPLE.outsider);
-    await expectMutationDenied(page);
-  });
-
-  test("e2e.group.detail.save_no_admin", async ({ page }) => {
-    const { fixtures } = await seedAuth(page, "requestor");
-    await page.goto(`/permission/groups/${fixtures.group_id}`, {
-      waitUntil: "domcontentloaded",
-    });
-    await waitForHydrated(page);
-    const save = page.getByRole("button", { name: /Save Changes/i });
-    await expect(save).toBeVisible({ timeout: 60_000 });
-    await page.getByLabel(/Description/i).first().fill("blocked");
-    await save.click();
-    await expectMutationDenied(page);
-  });
-
-  test("e2e.group.detail.save_happy", async ({ page }) => {
-    const { fixtures } = await seedAuth(page, "admin");
-    await page.goto(`/permission/groups/${fixtures.group_id}`, {
-      waitUntil: "domcontentloaded",
-    });
-    await waitForHydrated(page);
-    const desc = `group-desc-${Date.now()}`;
-    await page.getByLabel(/Description/i).first().fill(desc);
-    await page.getByRole("button", { name: /Save Changes/i }).click();
-    await expect(page.getByLabel(/Description/i).first()).toHaveValue(desc, { timeout: 60_000 });
-  });
-
-  test("e2e.group.detail.delete_happy", async ({ page }) => {
-    await seedAuth(page, "admin");
-    await page.goto("/permission/create-group", { waitUntil: "domcontentloaded" });
-    await waitForHydrated(page);
-    const name = `E2E-Del-Group-${Date.now()}`;
-    await page.getByLabel(/Display name|Group name/i).fill(name);
-    await page.getByLabel(/Description/i).fill("delete me");
-    await page.getByRole("button", { name: /Create Group/i }).click();
-    await expect(page).toHaveURL(/\/permission\/groups\//, { timeout: 60_000 });
-    await waitForHydrated(page);
-    await page.getByRole("button", { name: /Delete Group/i }).click();
-    await expect(page).toHaveURL(/\/permission\/groups\/?$/, { timeout: 60_000 });
-    await waitForHydrated(page);
-    await page.goto("/permission/groups", { waitUntil: "domcontentloaded" });
-    await waitForHydrated(page);
-    await page.getByPlaceholder(/Search by group/i).fill(name);
-    await expect(
-      page.locator("#gauge-groups-list").getByText(name, { exact: true }),
-    ).toHaveCount(0, { timeout: 30_000 });
-  });
-
-  test("e2e.group.detail.request_submit_happy", async ({ page }) => {
-    const { fixtures } = await seedAuth(page, "outsider");
-    await page.goto(`/permission/groups/${fixtures.group_id}`, {
-      waitUntil: "domcontentloaded",
-    });
-    await waitForHydrated(page);
-    const requestBtn = page.getByRole("button", { name: /Request Access/i });
-    await expect(requestBtn).toBeVisible({ timeout: 60_000 });
-    await requestBtn.click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible({ timeout: 15_000 });
-    await dialog.locator("textarea").fill(`want group ${Date.now()}`);
-    await dialog.getByRole("button", { name: "Submit Request", exact: true }).click();
-    await expect(dialog).toHaveCount(0, { timeout: 60_000 });
-    await page.goto("/permission/requests", { waitUntil: "domcontentloaded" });
-    await waitForHydrated(page);
-    // Scoped to the list: the Status filter also has a "Pending" option.
-    const mine = page.locator("#gauge-requests-mine");
-    await expect(mine.getByText(/PENDING/).first()).toBeVisible({ timeout: 60_000 });
-    await expect(mine.getByText(/Deployers/i).first()).toBeVisible({ timeout: 60_000 });
-  });
-
-  test("e2e.group.detail.request_btn_hidden", async ({ page }) => {
-    const { fixtures } = await seedAuth(page, "admin");
-    await page.goto(`/permission/groups/${fixtures.group_id}`, {
-      waitUntil: "domcontentloaded",
-    });
-    await waitForHydrated(page);
-    const memberActions = page.getByRole("button", { name: /Open member actions/i });
-    let hasRequestor = false;
-    const n = await memberActions.count();
-    for (let i = 0; i < n; i++) {
-      const text = await memberActions
-        .nth(i)
-        .locator("xpath=ancestor::div[1]")
-        .innerText()
-        .catch(() => "");
-      if (text.includes("requestor")) {
-        hasRequestor = true;
-        break;
-      }
-    }
-    if (!hasRequestor) {
-      await pickPrincipal(page, MEMBERS, "Rae", PEOPLE.requestor);
-      await expectRolePrincipal(page, "member", REQUESTOR);
-    }
-    await seedAuth(page, "requestor", false);
-    await page.goto(`/permission/groups/${fixtures.group_id}`, {
-      waitUntil: "domcontentloaded",
-    });
-    await waitForHydrated(page);
-    await expect(page.getByRole("button", { name: /Request Access/i })).toHaveCount(0);
-  });
-
-  test("e2e.group.detail.request_empty_reason", async ({ page }) => {
-    const { fixtures } = await seedAuth(page, "outsider");
-    await page.goto(`/permission/groups/${fixtures.group_id}`, {
-      waitUntil: "domcontentloaded",
-    });
-    await waitForHydrated(page);
-    await page.getByRole("button", { name: /Request Access/i }).click();
-    const dialog = page.getByRole("dialog");
-    await dialog.getByRole("button", { name: "Submit Request", exact: true }).click();
-    await expect(page.getByText(/Reason is required/i)).toBeVisible({ timeout: 30_000 });
+    await expect(activity.getByText(PEOPLE.admin, { exact: false }).first()).toBeVisible();
+    await expect(activity.getByText(/user:/)).toHaveCount(0);
   });
 
   test("e2e.group.detail.not_found", async ({ page }) => {
     await seedAuth(page, "admin");
-    await page.goto("/permission/groups/does-not-exist-xyz", {
-      waitUntil: "domcontentloaded",
-    });
-    await waitForHydrated(page);
-    await expect(page.getByText(/Group not found/i).first()).toBeVisible({
+    await openGroup(page, "does-not-exist-xyz");
+    await expect(page.getByTestId("gauge-group-not-found").getByText("No group with that link")).toBeVisible({
       timeout: 60_000,
     });
   });
 
-  test("e2e.group.detail.history_entries", async ({ page }) => {
-    const { fixtures } = await seedAuth(page, "admin");
-    await page.goto(`/permission/groups/${fixtures.group_id}`, {
-      waitUntil: "domcontentloaded",
-    });
-    await waitForHydrated(page);
-    const stamp = `ghist-${Date.now()}`;
-    await page.getByLabel(/Description/i).first().fill(stamp);
-    await page.getByRole("button", { name: /Save Changes/i }).click();
-    await page.getByRole("button", { name: /Show History|View History|History/i }).click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible({ timeout: 30_000 });
-    await expect(dialog.getByText(/No history entries yet/i)).toHaveCount(0);
-    await expect(dialog.getByText(/Loading history/i)).toHaveCount(0);
-    await expect(dialog.getByTestId("record-history-timeline")).toBeVisible({
-      timeout: 60_000,
-    });
-    await expect(dialog.getByText(stamp).first()).toBeVisible({ timeout: 60_000 });
-  });
-
-  test("e2e.group.detail.history_relation_member", async ({ page }) => {
-    await seedAuth(page, "admin");
-    await page.goto("/permission/create-group", { waitUntil: "domcontentloaded" });
-    await waitForHydrated(page);
-    const name = `E2E-HistRel-${Date.now()}`;
-    await page.getByLabel(/Display name|Name/i).first().fill(name);
-    await page.getByLabel(/Description/i).fill("relation history");
-    await page.getByRole("button", { name: /Create Group/i }).click();
-    await expect(page).toHaveURL(/\/permission\/groups\//, { timeout: 60_000 });
-    await waitForHydrated(page);
-    await pickPrincipal(page, MEMBERS, "Rae", PEOPLE.requestor);
-    await expectRolePrincipal(page, "member", REQUESTOR);
-    await page.getByRole("button", { name: /Show History|View History|History/i }).click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible({ timeout: 30_000 });
-    await expect(dialog.getByTestId("record-history-timeline")).toBeVisible({
-      timeout: 60_000,
-    });
-    const relation = dialog.getByTestId("gauge-history-relation-row").first();
-    await expect(relation).toBeVisible({ timeout: 60_000 });
-    await expect(relation.getByText(/^Added$/)).toBeVisible();
-    await expect(relation.getByText(/requestor/i).first()).toBeVisible();
-  });
-
-  test("e2e.group.detail.history_acl_deny", async ({ page }) => {
+  test("e2e.group.detail.request_access_for_non_owner", async ({ page }) => {
     const { fixtures } = await seedAuth(page, "outsider");
-    await page.goto(`/permission/groups/${fixtures.group_id}`, {
-      waitUntil: "domcontentloaded",
-    });
-    await waitForHydrated(page);
-    await page.getByRole("button", { name: /Show History|View History|History/i }).click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible({ timeout: 30_000 });
-    await expect(dialog.getByTestId("gauge-history-access-denied")).toBeVisible({
+    await openGroup(page, fixtures.group_id);
+    await expect(page.locator("#gauge-group-request-access").getByRole("button", { name: "Request access" })).toBeVisible({
       timeout: 60_000,
     });
-    await expect(
-      dialog.getByText(/Not authorized to view this history/i),
-    ).toBeVisible();
-    await expect(dialog.getByTestId("record-history-timeline")).toBeHidden();
+    await expect(page.locator("#gauge-group-add-members").getByRole("button")).toHaveCount(0);
   });
 });

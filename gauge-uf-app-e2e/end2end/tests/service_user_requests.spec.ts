@@ -50,7 +50,7 @@ test.describe("gauge.open-by-name", () => {
     });
     await waitForHydrated(page);
     await expect(page).toHaveURL(/\/permission\/groups\/[^/?]+$/, { timeout: 60_000 });
-    await expect(page.getByRole("button", { name: "Request Access", exact: true })).toBeVisible({
+    await expect(page.getByRole("button", { name: "Request access", exact: true })).toBeVisible({
       timeout: 60_000,
     });
   });

@@ -10,7 +10,13 @@ import {
   searchPickerAnswered,
 } from "./fixtures";
 
-const PICKER = "gauge-perm-allow-picker";
+const PICKER = "gauge-give-access-picker";
+
+/** Open Give access on the fixture permission. */
+async function openGive(page: import("@playwright/test").Page) {
+  await page.locator("#gauge-perm-give").getByRole("button", { name: "Give access" }).click();
+  await expect(pickerInput(page, PICKER)).toBeVisible({ timeout: 60_000 });
+}
 
 test.describe("e2e.search.principals", () => {
   test("e2e.search.principals_initial", async ({ page }) => {
@@ -19,6 +25,7 @@ test.describe("e2e.search.principals", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
+    await openGive(page);
     // An empty box lists the permission groups, never the people directory.
     await pickerInput(page, PICKER).click();
     const list = await pickerList(page, PICKER);
@@ -33,6 +40,7 @@ test.describe("e2e.search.principals", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
+    await openGive(page);
     const list = await searchPickerAnswered(page, PICKER, "requ");
     const rae = pickerRow(list, PEOPLE.requestor);
     await expect(rae).toBeVisible({ timeout: 30_000 });
@@ -46,6 +54,7 @@ test.describe("e2e.search.principals", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
+    await openGive(page);
     const list = await searchPickerAnswered(page, PICKER, "Deployers");
     const group = pickerRow(list, "Deployers", true).first();
     await expect(group).toBeVisible({ timeout: 30_000 });
@@ -58,8 +67,9 @@ test.describe("e2e.search.principals", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    // The group list comes from a GaugeAdmin-only search, so a non-admin sees no groups.
-    const list = await searchPickerAnswered(page, PICKER, "Deployers");
-    await expect(list.locator('[data-testid="person-picker-row"][data-kind="extra"]')).toHaveCount(0);
+    // Someone who can't change the allow list gets no Give access and no picker.
+    await expect(page.getByTestId("gauge-perm-why-not")).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator("#gauge-perm-give").getByRole("button")).toHaveCount(0);
+    await expect(pickerInput(page, PICKER)).toHaveCount(0);
   });
 });

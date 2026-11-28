@@ -7,8 +7,8 @@ use uf_product::components::{Body1, Caption1, Card, EmptyState, SkeletonItemSize
 use uf_product::components::{ContentContainer, SpacingSize, Title3};
 use uf_product::primitives::{
     Button, ButtonAppearance, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface,
-    DialogTitle, Field, Flex, FlexAlign, FlexGap, FlexJustify, Input, Menu, MenuItem, MenuTrigger,
-    MessageBar, MessageBarIntent, SkeletonItem, Textarea,
+    DialogTitle, Field, Flex, FlexAlign, FlexGap, FlexJustify, Input, MarkdownEditor, Menu,
+    MenuItem, MenuTrigger, MessageBar, MessageBarIntent, SkeletonItem,
 };
 
 use crate::pages::principal_pick::{act_on_pick, to_picked, PickTarget};
@@ -211,7 +211,7 @@ pub fn DomainDetailPage() -> impl IntoView {
                                                 <Input bind=name />
                                             </Field>
                                             <Field label="Description">
-                                                <Textarea bind=description />
+                                                <MarkdownEditor value=description aria_label="Description" />
                                             </Field>
                                             <Show when=move || error.get().is_some()>
                                                 <MessageBar intent=MessageBarIntent::Error>

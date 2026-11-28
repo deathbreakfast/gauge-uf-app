@@ -1,4 +1,4 @@
-import { test, expect, seedAuth, waitForHydrated, userRow } from "./fixtures";
+import { test, expect, seedAuth, waitForHydrated, PEOPLE } from "./fixtures";
 
 test.describe("e2e.req.index", () => {
   test("e2e.req.index.reviewer_sees_pending", async ({ page }) => {
@@ -78,16 +78,8 @@ test.describe("e2e.req.detail", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    const memberActions = page.getByRole("button", { name: /Open member actions/i });
-    const count = await memberActions.count();
-    for (let i = 0; i < count; i++) {
-      const text = await memberActions
-        .nth(i)
-        .locator("xpath=ancestor::div[1]")
-        .innerText()
-        .catch(() => "");
-      expect(text.includes("requestor")).toBeFalsy();
-    }
+    await expect(page.getByTestId("gauge-group-members")).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId("gauge-group-members").getByText(PEOPLE.requestor)).toHaveCount(0);
   });
 
   test("e2e.req.detail.approve_permission", async ({ page }) => {
@@ -103,7 +95,8 @@ test.describe("e2e.req.detail", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    await expect(page.getByText(userRow("requestor")).first()).toBeVisible({
+    await page.locator("#gauge-perm-tabs").getByRole("tab", { name: /Allow list/ }).click();
+    await expect(page.getByTestId("gauge-perm-allow").getByText(PEOPLE.requestor).first()).toBeVisible({
       timeout: 60_000,
     });
   });
@@ -120,7 +113,7 @@ test.describe("e2e.req.detail", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    await expect(page.getByText(userRow("requestor")).first()).toBeVisible({
+    await expect(page.getByTestId("gauge-group-members").getByText(PEOPLE.requestor).first()).toBeVisible({
       timeout: 60_000,
     });
   });

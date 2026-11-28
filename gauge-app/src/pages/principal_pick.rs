@@ -2,20 +2,16 @@
 //! principals: what a pick grants, which rows show disabled, and the permission groups
 //! offered beside people.
 
-use gauge::search_sources::PermissionSearchSourceId;
 use gauge::types::{PrincipalKind as GaugeKind, PrincipalRefDto};
 use lepton_shell::people::{PickedPrincipal, PickerGroup, PickerOption, PrincipalKind};
 use leptos::prelude::*;
 use uf_product::primitives::{Badge, BadgeAppearance, BadgeColor, BadgeSize};
 use uf_search_core::SearchSourceItem;
 
-use crate::server::search_principals;
+use crate::server::search_group_options;
 
 /// Header of the caller-supplied group that lists permission groups.
 pub const GROUPS_LABEL: &str = "Permission groups";
-
-/// Most permission groups a picker offers.
-const MAX_GROUP_OPTIONS: u32 = 50;
 
 /// The Gauge principal a pick names.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -99,27 +95,27 @@ pub fn group_options(items: Vec<SearchSourceItem>, skip: Option<&str>) -> Vec<Pi
     }
 }
 
-/// Loads the permission groups a picker offers, again whenever `refresh` changes. `skip`
-/// leaves one group out.
-pub fn use_group_options(
-    refresh: RwSignal<u64>,
+/// The permission groups a picker offers for what's typed in `query`, leaving out `skip`
+/// (the group being edited).
+///
+/// Searches Gauge's groups on each change of `query` (an empty box lists the first groups
+/// by name), so a group past the first page can still be found. The last answer stays up
+/// while the next one loads, so the list doesn't blink as you type.
+pub fn use_group_search(
+    query: RwSignal<String>,
     skip: Signal<Option<String>>,
 ) -> Signal<Vec<PickerGroup>> {
-    let groups = Resource::new(
-        move || refresh.get(),
-        |_| async move {
-            search_principals(
-                vec![PermissionSearchSourceId::PermissionGroup.into()],
-                None,
-                MAX_GROUP_OPTIONS,
-            )
-            .await
-        },
+    let answer = crate::pages::shared::local_resource(
+        move || query.get().trim().to_string(),
+        |q| async move { search_group_options(q).await },
     );
-    Signal::derive(move || {
-        let items = groups.get().and_then(Result::ok).unwrap_or_default();
-        group_options(items, skip.get().as_deref())
-    })
+    let last = RwSignal::new(Vec::<SearchSourceItem>::new());
+    Effect::new(move |_| {
+        if let Some(Ok(items)) = answer.get() {
+            last.set(items);
+        }
+    });
+    Signal::derive(move || group_options(last.get(), skip.get().as_deref()))
 }
 
 /// `on_change` for a one-shot picker: runs `act` on the newest pick, then empties the
@@ -148,6 +144,7 @@ pub fn act_on_pick(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gauge::search_sources::PermissionSearchSourceId;
 
     fn pick(kind: PrincipalKind, id: &str) -> PickedPrincipal {
         PickedPrincipal {

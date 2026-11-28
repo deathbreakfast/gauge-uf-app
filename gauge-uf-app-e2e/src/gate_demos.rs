@@ -16,6 +16,8 @@ pub const E2E_REQUESTOR_USER: &str = "user:requestor";
 pub const E2E_OUTSIDER_USER: &str = "user:outsider";
 #[cfg(feature = "ssr")]
 pub const E2E_UNVERIFIED_USER: &str = "user:unverified";
+#[cfg(feature = "ssr")]
+pub const E2E_KENJI_USER: &str = "user:kenji";
 
 /// Session kinds for Playwright seed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,6 +32,8 @@ pub enum E2eAuthKind {
     Outsider,
     /// Authenticated but email unverified.
     Unverified,
+    /// Verified owner of Super User (Kenji Watanabe), without GaugeAdmin.
+    Kenji,
 }
 
 impl E2eAuthKind {
@@ -40,6 +44,7 @@ impl E2eAuthKind {
             Self::Requestor => "requestor",
             Self::Outsider => "outsider",
             Self::Unverified => "unverified",
+            Self::Kenji => "kenji",
         }
     }
 
@@ -49,6 +54,7 @@ impl E2eAuthKind {
             "requestor" => Self::Requestor,
             "outsider" => Self::Outsider,
             "unverified" | "authenticated_unverified" => Self::Unverified,
+            "kenji" => Self::Kenji,
             _ => Self::Anonymous,
         }
     }
@@ -61,6 +67,7 @@ impl E2eAuthKind {
             Self::Requestor => Some(E2E_REQUESTOR_USER),
             Self::Outsider => Some(E2E_OUTSIDER_USER),
             Self::Unverified => Some(E2E_UNVERIFIED_USER),
+            Self::Kenji => Some(E2E_KENJI_USER),
         }
     }
 
@@ -98,6 +105,14 @@ impl E2eAuthKind {
                 avatar_url: None,
                 roles: vec!["user".into()],
                 email_verified: false,
+            }),
+            Self::Kenji => AuthSession::Authenticated(AuthenticatedUser {
+                user_id: "kenji".into(),
+                email: Some("kenji@example.com".into()),
+                display_name: Some("Kenji Watanabe".into()),
+                avatar_url: None,
+                roles: vec!["user".into()],
+                email_verified: true,
             }),
         }
     }
