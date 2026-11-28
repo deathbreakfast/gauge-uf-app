@@ -132,7 +132,7 @@ pub fn PermissionsIndexPage() -> impl IntoView {
                                 let on_row_click = Callback::new(move |(id,): (String,)| {
                                     navigate(&format!("/permission/permissions/{id}"), NavigateOptions::default());
                                 });
-                                let mut columns = vec![
+                                let columns = vec![
                                     DataTableColumnDef::new("permission", "Permission").with_cell_view(Arc::new(move |r: DataRecord| {
                                         let Some(row) = by_id.with_value(|m| m.get(&r.id).cloned()) else {
                                             return view! { <span /> }.into_any();
@@ -148,9 +148,9 @@ pub fn PermissionsIndexPage() -> impl IntoView {
                                     DataTableColumnDef::new("domain", "Domain"),
                                     DataTableColumnDef::new("owned_by", "Owned by"),
                                 ];
-                                if is_admin.get_untracked() {
-                                    columns.push(DataTableColumnDef::new("holders", "Who has it"));
-                                }
+                                // Viewer access loads after the rows, so the admin column
+                                // joins the table when it arrives.
+                                let columns = StoredValue::new(columns);
                                 view! {
                                     <div data-testid="gauge-permissions-table">
                                         {move || view! {
@@ -168,7 +168,13 @@ pub fn PermissionsIndexPage() -> impl IntoView {
                                                     pivot: false,
                                                     export_menu: false,
                                                 }
-                                                columns=columns.clone()
+                                                columns={
+                                                    let mut cols = columns.get_value();
+                                                    if is_admin.get() {
+                                                        cols.push(DataTableColumnDef::new("holders", "Who has it"));
+                                                    }
+                                                    cols
+                                                }
                                                 events=DataTableEvents {
                                                     on_row_click: Some(on_row_click),
                                                     ..Default::default()
