@@ -17,52 +17,60 @@ test.describe("e2e.perm.index", () => {
     await expect(page.getByTestId("gauge-permissions-index")).toBeVisible({
       timeout: 60_000,
     });
-    await expect(page.getByText("CanDeploy", { exact: true })).toBeVisible({ timeout: 60_000 });
+    const table = page.getByTestId("gauge-permissions-table");
+    await expect(table.getByText("Approve releases", { exact: true })).toBeVisible({ timeout: 60_000 });
+    // The key shows as code under the name, and admins see who holds each one.
+    await expect(table.getByText("ApproveRelease", { exact: true })).toBeVisible();
+    await expect(table.getByText(/\d+ (person|people)/).first()).toBeVisible();
   });
 
   test("e2e.perm.index.search_match", async ({ page }) => {
     await seedAuth(page, "admin");
     await page.goto("/permission/permissions", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
-    await expect(page.getByText("CanDeploy", { exact: true })).toBeVisible({ timeout: 60_000 });
-    await page.getByPlaceholder(/Search by permission/i).fill("CanDeploy");
-    await expect(page.getByText("CanDeploy", { exact: true })).toBeVisible();
+    const table = page.getByTestId("gauge-permissions-table");
+    await expect(table.getByText("CanDeploy", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
+    await table.getByRole("searchbox").or(table.getByRole("textbox")).first().fill("ApproveRelease");
+    await expect(table.getByText("Approve releases", { exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/[?&]q=ApproveRelease/);
   });
 
   test("e2e.perm.index.search_no_match", async ({ page }) => {
     await seedAuth(page, "admin");
-    await page.goto("/permission/permissions", { waitUntil: "domcontentloaded" });
+    await page.goto("/permission/permissions?q=zz-no-such-perm", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
-    await page.getByPlaceholder(/Search by permission/i).fill("zz-no-such-perm");
-    await expect(page.getByText(/No permissions found/i)).toBeVisible({
-      timeout: 30_000,
-    });
+    const noMatch = page.getByTestId("gauge-permissions-no-match");
+    await expect(noMatch).toBeVisible({ timeout: 60_000 });
+    await expect(noMatch.getByText("No permission matches your search")).toBeVisible();
+    await expect(page.getByTestId("gauge-permissions-empty")).toHaveCount(0);
+    await noMatch.getByRole("button", { name: "Clear search" }).click();
+    await expect(page.getByText("CanDeploy", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
   });
 
   test("e2e.perm.index.open_row", async ({ page }) => {
     const { fixtures } = await seedAuth(page, "admin");
     await page.goto("/permission/permissions", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
-    await page.locator(`a[href="/permission/permissions/${fixtures.permission_id}"]`).click();
-    await expect(page).toHaveURL(new RegExp(`/permission/permissions/${fixtures.permission_id}`));
+    await page.getByTestId("gauge-permissions-table").getByText("Approve releases", { exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/permission/permissions/${fixtures.release_permission_id}`));
   });
 
   test("e2e.perm.index.create_cta", async ({ page }) => {
     await seedAuth(page, "admin");
     await page.goto("/permission/permissions", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
-    await page
-      .getByTestId("gauge-permissions-index")
-      .getByRole("link", { name: /Create Permission/i })
-      .or(
-        page
-          .getByTestId("gauge-permissions-index")
-          .getByRole("button", { name: /Create Permission/i }),
-      )
-      .first()
-      .click();
+    await page.locator("#gauge-permissions-create").getByRole("button", { name: "Create permission" }).click();
     await expect(page).toHaveURL(/\/permission\/create-permission/);
   });
+
+  test("e2e.perm.index.no_create_for_non_admin", async ({ page }) => {
+    await seedAuth(page, "outsider");
+    await page.goto("/permission/permissions", { waitUntil: "domcontentloaded" });
+    await waitForHydrated(page);
+    await expect(page.getByText("CanDeploy", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator("#gauge-permissions-create")).toHaveCount(0);
+  });
+
 });
 
 test.describe("e2e.domain.create", () => {
@@ -175,10 +183,9 @@ test.describe("e2e.domain.create", () => {
     await seedAuth(page, "requestor");
     await page.goto("/permission/create-domain", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
-    await page.getByLabel(/Domain name/i).fill("ShouldFail");
-    await page.getByLabel(/Description/i).fill("no admin");
-    await page.getByRole("button", { name: "Create Domain", exact: true }).click();
-    await expectMutationDenied(page);
+    const denied = page.getByTestId("gauge-denied-page");
+    await expect(denied.getByText("Creating domains needs GaugeAdmin")).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByRole("button", { name: "Create Domain", exact: true })).toHaveCount(0);
   });
 
   test("e2e.domain.create.empty_name", async ({ page }) => {
@@ -197,25 +204,31 @@ test.describe("e2e.perm.create", () => {
     await seedAuth(page, "admin");
     await page.goto("/permission/create-permission", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
-    const name = `E2E-Perm-${Date.now()}`;
-    await page.getByLabel(/Display name/i).fill(name);
-    await page.getByLabel(/Description/i).fill("e2e permission");
-    // Native/Orbital Select under Domain field
+    const stamp = Date.now();
+    const name = `E2E perm ${stamp}`;
+    await page.locator("#gauge-create-perm-name input").fill(name);
+    // The key follows the name.
+    await expect(page.locator("#gauge-create-perm-key input")).toHaveValue(`E2EPerm${stamp}`);
+    await expect(page.getByTestId("gauge-create-perm-owner-default")).toContainText(
+      `Owners of ${name} (new group, you are its owner)`,
+    );
+    await page.getByTestId("gauge-create-perm-description").locator("textarea").fill("Lets **e2e** run.");
     const domainSelect = page.locator("select").first();
     await expect(domainSelect).toBeVisible({ timeout: 60_000 });
     await domainSelect.selectOption({ label: "Ops" });
-    await page.getByRole("button", { name: /Create Permission/i }).click();
+    await page.getByRole("button", { name: "Create permission" }).click();
     await expect(page).toHaveURL(/\/permission\/permissions\//, { timeout: 60_000 });
-    await expect(page.getByLabel(/^Name$/i)).toHaveValue(name, { timeout: 30_000 });
+    await expect(page.getByRole("heading", { name })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(`E2EPerm${stamp}`, { exact: true })).toBeVisible();
   });
 
   test("e2e.perm.create.domain_required_client", async ({ page }) => {
     await seedAuth(page, "admin");
     await page.goto("/permission/create-permission", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
-    await page.getByLabel(/Display name/i).fill("NoDomainPerm");
-    await page.getByRole("button", { name: /Create Permission/i }).click();
-    await expect(page.getByText(/Permission domain is required/i)).toBeVisible({
+    await page.locator("#gauge-create-perm-name input").fill("NoDomainPerm");
+    await page.getByRole("button", { name: "Create permission" }).click();
+    await expect(page.getByTestId("gauge-error-bar").getByText("Pick a domain.")).toBeVisible({
       timeout: 30_000,
     });
   });
@@ -224,13 +237,11 @@ test.describe("e2e.perm.create", () => {
     await seedAuth(page, "admin", false, { listDomainsMode: "empty" });
     await page.goto("/permission/create-permission", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
-    await expect(page.getByText(/No domains available\. Create one first/i)).toBeVisible({
+    await expect(page.getByText(/No domains yet\. Create one first/i)).toBeVisible({
       timeout: 60_000,
     });
-    // Product leaves Select enabled with only the placeholder when the list is empty.
     const domainSelect = page.locator("select").first();
     await expect(domainSelect.locator("option")).toHaveCount(1);
-    await expect(domainSelect.locator("option").first()).toHaveText(/Select a domain/i);
     await seedAuth(page, "admin"); // clear lab override
   });
 
@@ -238,9 +249,10 @@ test.describe("e2e.perm.create", () => {
     await seedAuth(page, "admin", false, { listDomainsMode: "error" });
     await page.goto("/permission/create-permission", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
-    await expect(page.locator(".orbital-message-bar--error").first()).toBeVisible({
-      timeout: 60_000,
-    });
+    const bar = page.getByTestId("gauge-error-bar");
+    await expect(bar.getByText("Couldn't load the domains")).toBeVisible({ timeout: 60_000 });
+    // Never the raw server error.
+    await expect(page.getByText(/e2e forced failure/)).toHaveCount(0);
     await expect(page.locator("select").first()).toBeDisabled();
     await seedAuth(page, "admin");
   });
@@ -249,11 +261,10 @@ test.describe("e2e.perm.create", () => {
     await seedAuth(page, "requestor");
     await page.goto("/permission/create-permission", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
-    await page.getByLabel(/Display name/i).fill("BlockedPerm");
-    const domainSelect = page.locator("select").first();
-    await expect(domainSelect).toBeVisible({ timeout: 60_000 });
-    await domainSelect.selectOption({ label: "Ops" });
-    await page.getByRole("button", { name: /Create Permission/i }).click();
-    await expectMutationDenied(page);
+    const denied = page.getByTestId("gauge-denied-page");
+    await expect(denied.getByText("Creating permissions needs GaugeAdmin")).toBeVisible({ timeout: 60_000 });
+    await expect(denied.getByRole("button", { name: "Ask for GaugeAdmin" })).toBeVisible();
+    await expect(page.locator("#gauge-create-perm-form")).toHaveCount(0);
   });
+
 });

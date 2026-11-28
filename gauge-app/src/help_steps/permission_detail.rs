@@ -48,7 +48,7 @@ pub fn PermissionDetailGiveHelp() -> impl IntoView {
     route = "/permission/permissions/:id",
     feature_highlight = "permission-detail-tabs",
     title = "Who has it, and why",
-    spotlight = "gauge-perm-tabs",
+    spotlight = "gauge-perm-access",
     position = "top",
     order = 30
 )]

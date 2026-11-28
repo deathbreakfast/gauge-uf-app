@@ -12,7 +12,7 @@ use uf_product::primitives::{
     DialogTitle, Flex, FlexGap, SkeletonItem,
 };
 
-use crate::pages::shared::words::{first_name, path_text};
+use crate::pages::shared::words::{first_name, path_text, plain_name};
 use crate::server::{get_principal_access, SUPER_USER_GROUP_ID};
 
 /// What someone is being removed from.
@@ -58,7 +58,7 @@ pub struct RemoveTarget {
 pub fn remove_action(target: &RemoveTarget) -> String {
     match &target.from {
         RemoveFrom::Group { name, .. } => {
-            format!("Remove {} from {name}", target.principal.label)
+            format!("Remove {} from {name}", plain_name(&target.principal.label))
         }
         RemoveFrom::AllowList { name, .. } => {
             format!(
@@ -146,7 +146,11 @@ pub fn RemoveConfirmDialog(
     );
     let title = move || {
         target.get().map_or_else(String::new, |t| {
-            format!("Remove {} from {}?", t.principal.label, t.from.name())
+            format!(
+                "Remove {} from {}?",
+                plain_name(&t.principal.label),
+                t.from.name()
+            )
         })
     };
     let button = move || {

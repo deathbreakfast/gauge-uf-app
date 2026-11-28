@@ -91,7 +91,7 @@ test.describe("e2e.rag.group", () => {
       ),
     ).toBeVisible({ timeout: 60_000 });
     await expect(page.getByTestId("gauge-group-managed-banner")).toHaveCount(0);
-    await expect(page.locator("#gauge-group-members-picker")).toBeVisible();
+    await expect(page.locator("#gauge-group-add-members").getByRole("button")).toBeVisible();
   });
 });
 

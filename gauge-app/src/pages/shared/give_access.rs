@@ -129,6 +129,8 @@ pub fn GiveAccessDialog(
     /// The permission, its allow list and the groups to suggest.
     #[prop(into)]
     permission: Signal<GivePermission>,
+    /// Offer service users, who can only join a suggested group, never the allow list.
+    service_users: bool,
     /// Runs after a change lands, with a sentence for the success bar.
     on_done: Callback<String>,
 ) -> impl IntoView {
@@ -228,7 +230,7 @@ pub fn GiveAccessDialog(
                                 <PersonPicker
                                     value=picked
                                     single=true
-                                    service_users=true
+                                    service_users=service_users
                                     query=query
                                     extra_groups=groups
                                     exclude=Signal::derive(move || permission.with(|p| p.allow_list.iter().map(to_picked).collect::<Vec<_>>()))
@@ -426,7 +428,7 @@ pub fn GiveAccessToPersonDialog(
                                     Ok(opts) => view! {
                                         <RadioGroup bind=choice>
                                             {opts.into_iter().map(|o| view! {
-                                                <Radio value=o.value label=format!("{} — {}", o.label, o.caption) />
+                                                <Radio value=o.value label=if o.caption.is_empty() { o.label.clone() } else { format!("{}: {}", o.label, o.caption) } />
                                             }).collect_view()}
                                         </RadioGroup>
                                     }.into_any(),

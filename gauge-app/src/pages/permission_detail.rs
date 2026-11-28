@@ -43,7 +43,7 @@ use crate::pages::shared::remove_confirm::{
 use crate::pages::shared::request_access::{
     requested_for_handle, wants_request_dialog, RequestAccessDialog,
 };
-use crate::pages::shared::words::{date_view, kind_word, paths_text};
+use crate::pages::shared::words::{date_view, kind_word, paths_text, plain_name};
 use crate::pages::step_up::spawn_with_step_up_to;
 use crate::server::viewer::{use_viewer_access, viewer_now};
 use crate::server::{
@@ -96,6 +96,8 @@ pub fn PermissionDetailPage() -> impl IntoView {
     let params = use_params_map();
     let permission_id = Memo::new(move |_| params.read().get("id").unwrap_or_default());
     let refresh = RwSignal::new(0u64);
+    // Lives above the Transition, so a refetch after a change keeps the open tab.
+    let tab = RwSignal::new(TAB_WHO.to_string());
     let viewer = use_viewer_access();
     let detail = Resource::new(
         move || (permission_id.get(), refresh.get()),
@@ -107,7 +109,7 @@ pub fn PermissionDetailPage() -> impl IntoView {
             <Transition fallback=PermissionSkeleton>
                 {move || detail.get().map(|result| match result {
                     Ok(Some(row)) => view! {
-                        <PermissionLoaded row=row viewer_ready=Signal::derive(move || viewer.get().is_some()) refresh=refresh />
+                        <PermissionLoaded row=row viewer_ready=Signal::derive(move || viewer.get().is_some()) refresh=refresh tab=tab />
                     }.into_any(),
                     Ok(None) => view! { <PermissionNotFound /> }.into_any(),
                     Err(err) => view! {
@@ -192,6 +194,7 @@ fn PermissionLoaded(
     row: PermissionDetailDto,
     viewer_ready: Signal<bool>,
     refresh: RwSignal<u64>,
+    tab: RwSignal<String>,
 ) -> impl IntoView {
     let viewer = use_viewer_access();
     let row = StoredValue::new(row);
@@ -226,7 +229,7 @@ fn PermissionLoaded(
             .map(|g| {
                 g.owner_users
                     .iter()
-                    .map(|o| o.label.clone())
+                    .map(|o| plain_name(&o.label))
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default()
@@ -285,43 +288,37 @@ fn PermissionLoaded(
                         <Caption1>"Key " <Code text=key.clone() /></Caption1>
                     </Flex>
                     <div id="gauge-perm-actions">
-                        <Show when=move || viewer_ready.get()>
-                            <Show
-                                when=move || can_edit.get()
-                                fallback=move || view! {
-                                    <Show when=move || can_request>
-                                        <div id="gauge-perm-request-access">
-                                            <Button appearance=ButtonAppearance::Primary on_click=Callback::new(move |_| request_open.set(true))>
-                                                "Request access"
-                                            </Button>
-                                        </div>
-                                    </Show>
-                                }
-                            >
-                                <Flex gap=FlexGap::Small>
-                                    <div id="gauge-perm-give">
-                                        <Button appearance=ButtonAppearance::Primary on_click=Callback::new(move |_| give_open.set(true))>
-                                            "Give access"
-                                        </Button>
-                                    </div>
-                                    <Show when=move || is_admin.get()>
-                                        <div id="gauge-perm-more">
-                                            <Menu on_select=move |action: &str| match action {
-                                                "edit" => edit_open.set(true),
-                                                "delete" => delete_open.set(true),
-                                                _ => {}
-                                            }>
-                                                <MenuTrigger slot>
-                                                    <Button appearance=ButtonAppearance::Secondary icon=icondata::AiMoreOutlined attr:aria-label="More actions" />
-                                                </MenuTrigger>
-                                                <MenuItem value="edit">"Edit"</MenuItem>
-                                                <MenuItem value="delete">"Delete"</MenuItem>
-                                            </Menu>
-                                        </div>
-                                    </Show>
-                                </Flex>
+                        <Flex gap=FlexGap::Small>
+                            <div id="gauge-perm-request-access">
+                                <Show when=move || viewer_ready.get() && !can_edit.get() && can_request>
+                                    <Button appearance=ButtonAppearance::Primary on_click=Callback::new(move |_| request_open.set(true))>
+                                        "Request access"
+                                    </Button>
+                                </Show>
+                            </div>
+                            <div id="gauge-perm-give">
+                                <Show when=move || viewer_ready.get() && can_edit.get()>
+                                    <Button appearance=ButtonAppearance::Primary on_click=Callback::new(move |_| give_open.set(true))>
+                                        "Give access"
+                                    </Button>
+                                </Show>
+                            </div>
+                            <Show when=move || is_admin.get()>
+                                <div id="gauge-perm-more">
+                                    <Menu on_select=move |action: &str| match action {
+                                        "edit" => edit_open.set(true),
+                                        "delete" => delete_open.set(true),
+                                        _ => {}
+                                    }>
+                                        <MenuTrigger slot>
+                                            <Button appearance=ButtonAppearance::Secondary icon=icondata::AiMoreOutlined attr:aria-label="More actions" />
+                                        </MenuTrigger>
+                                        <MenuItem value="edit">"Edit"</MenuItem>
+                                        <MenuItem value="delete">"Delete"</MenuItem>
+                                    </Menu>
+                                </div>
                             </Show>
-                        </Show>
+                        </Flex>
                     </div>
                 </Flex>
             </div>
@@ -340,6 +337,7 @@ fn PermissionLoaded(
                     </Show>
                 </Flex>
             </div>
+            <div id="gauge-perm-access">
             <Show
                 when=move || can_edit.get()
                 fallback=move || view! {
@@ -351,10 +349,12 @@ fn PermissionLoaded(
                     />
                 }
             >
-                <EditorTabs row=row.get_value() record=record.clone() refresh=refresh notice=notice />
+                <EditorTabs row=row.get_value() record=record.clone() refresh=refresh notice=notice tab=tab />
             </Show>
+            </div>
             <GiveAccessDialog
                 open=give_open
+                service_users=true
                 permission=Signal::derive(move || give_permission(&row.get_value(), &owners_name.get(), viewer_now(viewer).can_manage_group(&row.with_value(|r| r.owners_group_id.clone()))))
                 on_done=Callback::new(move |text: String| {
                     notice.set(Some(text));
@@ -498,8 +498,8 @@ fn EditorTabs(
     record: RecordRef,
     refresh: RwSignal<u64>,
     notice: RwSignal<Option<String>>,
+    tab: RwSignal<String>,
 ) -> impl IntoView {
-    let tab = RwSignal::new(TAB_WHO.to_string());
     let row = StoredValue::new(row);
     let record = StoredValue::new(record);
     let allow_count = row.with_value(|r| r.allow_list.len());
@@ -649,7 +649,7 @@ fn AllowListTab(
         let permission_id = row.with_value(|r| r.id.clone());
         let principal = target.principal.clone();
         let confirm = remove_action(&target);
-        let label = principal.label.clone();
+        let label = plain_name(&principal.label);
         let name = target.from.name().to_string();
         remove_open.set(false);
         let done = Callback::new(move |()| {
@@ -743,6 +743,7 @@ fn AllowListTab(
             <RemoveConfirmDialog open=remove_open target=remove_target on_confirm=on_remove />
             <GiveAccessDialog
                 open=add_open
+                service_users=false
                 permission=Signal::derive(move || {
                     let r = row.get_value();
                     GivePermission {
@@ -827,7 +828,7 @@ fn EditPermissionDialog(
                                         <SearchSourcePicker
                                             search_sources=Signal::derive(|| vec![PermissionSearchSourceId::PermissionGroup.into()])
                                             options=owners_options
-                                            placeholder="Search groups"
+                                            placeholder="Search permission groups"
                                             on_request_initial=Callback::new(move |_| search(None))
                                             on_search=Callback::new(move |(_, q): (Vec<SearchSourceKey>, String)| search(Some(q)))
                                             on_select=Callback::new(move |item: SearchSourceItem| owners_group_id.set(item.id))

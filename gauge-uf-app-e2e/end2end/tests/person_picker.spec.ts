@@ -26,7 +26,7 @@ import {
 
 type Page = import("@playwright/test").Page;
 
-const ALLOW = "gauge-perm-allow-picker";
+const ALLOW = "gauge-give-access-picker";
 const MEMBERS = "gauge-group-members-picker";
 const OWNERS = "gauge-group-owners-picker";
 const DOMAIN_OWNERS = "gauge-domain-owners-picker";
@@ -38,13 +38,30 @@ function unique(prefix: string, look: Look): string {
 async function createPermission(page: Page, name: string) {
   await page.goto("/permission/create-permission", { waitUntil: "domcontentloaded" });
   await waitForHydrated(page);
-  await page.getByLabel(/Display name/i).fill(name);
+  await page.locator("#gauge-create-perm-name input").fill(name);
   await page.getByLabel(/Description/i).fill("person picker e2e");
   await page.locator("select").first().selectOption({ label: "Ops" });
-  await page.getByRole("button", { name: /Create Permission/i }).click();
+  await page.getByRole("button", { name: "Create permission" }).click();
   await expect(page).toHaveURL(/\/permission\/permissions\/[^/]+$/, { timeout: 60_000 });
   await waitForHydrated(page);
+  await openAllowDialog(page);
+}
+
+/** Open the Allow list tab and its Add to allow list dialog. */
+async function openAllowDialog(page: Page) {
+  await page.locator("#gauge-perm-tabs").getByRole("tab", { name: /Allow list/ }).click();
+  await page.locator("#gauge-perm-allow-add").getByRole("button").click();
   await expect(pickerInput(page, ALLOW)).toBeVisible({ timeout: 60_000 });
+}
+
+/** Give the picked principal the permission, then reopen the dialog for the next search. */
+async function giveAndReopen(page: Page, listed: string) {
+  await page.getByTestId("gauge-give-access-submit").click();
+  await expect(page.getByTestId("gauge-permission-notice")).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId("gauge-perm-allow").getByText(listed).first()).toBeVisible({
+    timeout: 60_000,
+  });
+  await openAllowDialog(page);
 }
 
 async function createGroup(page: Page, name: string) {
@@ -55,6 +72,12 @@ async function createGroup(page: Page, name: string) {
   await page.getByRole("button", { name: /Create Group/i }).click();
   await expect(page).toHaveURL(/\/permission\/groups\/[^/]+$/, { timeout: 60_000 });
   await waitForHydrated(page);
+  await openMembersDialog(page);
+}
+
+/** Open Add members. */
+async function openMembersDialog(page: Page) {
+  await page.locator("#gauge-group-add-members").getByRole("button").click();
   await expect(pickerInput(page, MEMBERS)).toBeVisible({ timeout: 60_000 });
 }
 
@@ -88,8 +111,7 @@ for (const look of LOOKS) {
       await expect(rae).not.toContainText("@");
       await expectNoA11yViolations(page, `permission allow picker open (${look})`);
       await clickRow(rae);
-      const allowList = page.locator("#gauge-perm-allow-remove");
-      await expect(allowList.getByText(userRow("requestor"))).toBeVisible({ timeout: 60_000 });
+      await giveAndReopen(page, PEOPLE.requestor);
 
       // The person now on the list shows disabled.
       const again = await searchPickerAnswered(page, ALLOW, "Rae");
@@ -102,17 +124,13 @@ for (const look of LOOKS) {
       await createPermission(page, unique("PP-Short", look));
       const list = await searchPicker(page, ALLOW, "R");
       await expect(list.locator('[data-testid="person-picker-row"][data-kind="user"]')).toHaveCount(0);
-      await expect(page.locator("#gauge-perm-allow-remove").getByText(userRow("requestor")))
-        .toHaveCount(0);
+      await expect(page.getByTestId("gauge-give-access-submit")).toBeDisabled();
     });
 
     test(`pw-gauge-grant-group-happy [${look}]`, async ({ page }) => {
       await createPermission(page, unique("PP-Group", look));
       await pickPrincipal(page, ALLOW, "Deployers", "Deployers", true);
-      const allowList = page.locator("#gauge-perm-allow-remove");
-      await expect(allowList.getByText("Deployers", { exact: true })).toBeVisible({
-        timeout: 60_000,
-      });
+      await giveAndReopen(page, "Deployers");
 
       // A group already on the list shows disabled.
       const again = await searchPicker(page, ALLOW, "Deployers");
@@ -132,10 +150,11 @@ for (const look of LOOKS) {
       await expect(agent).toContainText("Service user · owned by you", { timeout: 30_000 });
       await expectNoA11yViolations(page, `group members picker open (${look})`);
       await clickRow(agent);
-      const members = page.locator("#gauge-group-member-remove");
-      await expect(members.getByText("admin-agent", { exact: true })).toBeVisible({
+      const members = page.getByTestId("gauge-group-members");
+      await expect(members.getByText("admin-agent").first()).toBeVisible({
         timeout: 60_000,
       });
+      await openMembersDialog(page);
 
       // The service user is a member now, so its row shows disabled.
       list = await searchPickerAnswered(page, MEMBERS, "agent");
@@ -148,9 +167,10 @@ for (const look of LOOKS) {
       // The service user holds the permission through the group.
       await createPermission(page, unique("PP-SU-Perm", look));
       await pickPrincipal(page, ALLOW, group, group, true);
-      await expect(
-        page.locator("#gauge-perm-allow-remove").getByText(group, { exact: true }),
-      ).toBeVisible({ timeout: 60_000 });
+      await page.getByTestId("gauge-give-access-submit").click();
+      await expect(page.getByTestId("gauge-perm-allow").getByText(group, { exact: true })).toBeVisible({
+        timeout: 60_000,
+      });
     });
 
     test(`pw-gauge-grant-service-user-direct-sad [${look}]`, async ({ page }) => {
@@ -163,6 +183,7 @@ for (const look of LOOKS) {
     test(`pw-gauge-super-user-no-service-users-sad [${look}]`, async ({ page }) => {
       await page.goto("/permission/groups/super_user_group", { waitUntil: "domcontentloaded" });
       await waitForHydrated(page);
+      await openMembersDialog(page);
       // Gauge never lets a service user into the Super User group.
       const list = await searchPickerAnswered(page, MEMBERS, "agent");
       await expect(serviceUserRows(list)).toHaveCount(0);
@@ -170,6 +191,8 @@ for (const look of LOOKS) {
 
     test(`pw-gauge-owners-people-only [${look}]`, async ({ page }) => {
       await createGroup(page, unique("PP-Owners", look));
+      await page.keyboard.press("Escape");
+      await page.locator("#gauge-group-tabs").getByRole("tab", { name: /Owners/ }).click();
 
       // Sad: no service users and no groups in the owners picker.
       let list = await searchPickerAnswered(page, OWNERS, "agent");
@@ -179,9 +202,9 @@ for (const look of LOOKS) {
 
       // Happy: a person becomes an owner.
       await pickPrincipal(page, OWNERS, "Rae", PEOPLE.requestor);
-      await expect(
-        page.locator("#gauge-group-owner-remove").getByText(userRow("requestor")),
-      ).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByTestId("gauge-group-owners").getByText(PEOPLE.requestor).first()).toBeVisible({
+        timeout: 60_000,
+      });
     });
 
     test(`pw-gauge-domain-owner [${look}]`, async ({ page }) => {
@@ -200,6 +223,9 @@ for (const look of LOOKS) {
 
     test(`pw-gauge-owners-group-picker [${look}]`, async ({ page }) => {
       await createPermission(page, unique("PP-OwnersGroup", look));
+      await page.keyboard.press("Escape");
+      await page.locator("#gauge-perm-more").getByRole("button", { name: "More actions" }).click();
+      await page.getByRole("menuitem", { name: "Edit" }).click();
       const owners = page.locator("#gauge-perm-owners-group-picker");
       const input = owners.getByPlaceholder(/Search permission groups/i);
 
@@ -219,13 +245,13 @@ for (const look of LOOKS) {
         .first();
       await expect(option).toBeVisible({ timeout: 30_000 });
       await clickRow(option);
-      const caption = page.getByTestId("gauge-perm-owners-group");
-      await expect(caption).toHaveText("Owned by Deployers", { timeout: 30_000 });
-      await page.getByRole("button", { name: /Save Changes/i }).click();
-      await expect(page.locator(".orbital-message-bar--error")).toHaveCount(0);
+      await page.locator("#gauge-perm-save").getByRole("button").click();
+      await expect(page.getByTestId("gauge-error-bar")).toHaveCount(0);
+      const facts = page.getByTestId("gauge-perm-facts");
+      await expect(facts.getByText("Deployers", { exact: true })).toBeVisible({ timeout: 60_000 });
       await page.reload({ waitUntil: "domcontentloaded" });
       await waitForHydrated(page);
-      await expect(caption).toHaveText("Owned by Deployers", { timeout: 60_000 });
+      await expect(facts.getByText("Deployers", { exact: true })).toBeVisible({ timeout: 60_000 });
     });
   });
 }

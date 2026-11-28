@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import AxeBuilder from "@axe-core/playwright";
 import { test as base, expect, type Locator, type Page } from "@playwright/test";
 
@@ -30,6 +31,10 @@ export type SeedFixtures = {
   archived_team_group_id: string;
   /** Pending request from `requestor` for Can view on the job. */
   resource_request_id: string;
+  /** "Release Captains": owners `admin` and `outsider`; members `requestor` and "On-call SRE" (member Kenji Watanabe). */
+  release_group_id: string;
+  /** "Approve releases" (`ApproveRelease`), on Release Captains' allow list. */
+  release_permission_id: string;
 };
 
 /** All Permission Help inventory keys — seed as seen so non-tour specs stay quiet. */
@@ -223,7 +228,7 @@ const GAUGE_HELP_STEPS_SEEN = [
   {
     route: "/permission/permissions/:id",
     feature_highlight: "permission-detail-tabs",
-    spotlight: "gauge-perm-tabs",
+    spotlight: "gauge-perm-access",
     replay: false,
   },
   {
@@ -268,6 +273,10 @@ export async function seedAuth(
     help_tour?: boolean;
     /** Add the service user `admin` owns to the fixture group before returning. */
     serviceUserMember?: boolean;
+    /** `valid` (default for signed-in seeds) or `none`: whether a recent code is on file. */
+    stepUpWindow?: "valid" | "none";
+    /** Put Release Captains back: `requestor` a member, `outsider` an owner. */
+    resetReleaseCaptains?: boolean;
   },
 ) {
   const helpTour = opts?.help_tour ?? false;
@@ -295,6 +304,8 @@ export async function seedAuth(
       refresh_requests: refreshRequests,
       list_domains_mode: opts?.listDomainsMode ?? null,
       service_user_member: opts?.serviceUserMember ?? false,
+      step_up_window: opts?.stepUpWindow ?? null,
+      reset_release_captains: opts?.resetReleaseCaptains ?? false,
     },
   });
   expect(res.ok()).toBeTruthy();
@@ -433,11 +444,34 @@ export async function expectMutationDenied(page: Page) {
   });
 }
 
+/** RFC 6238 secret of the lab admin's authenticator (`HARNESS_TOTP_SECRET` in the host). */
+const HARNESS_TOTP_SECRET = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+
+/** The lab admin's current 6-digit authenticator code. */
+export function totpCode(now = Date.now()): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = "";
+  for (const c of HARNESS_TOTP_SECRET) bits += alphabet.indexOf(c).toString(2).padStart(5, "0");
+  const key = Buffer.from(bits.match(/.{8}/g)!.map((b) => parseInt(b, 2)));
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(now / 1000 / 30)));
+  const mac = createHmac("sha1", key).update(counter).digest();
+  const offset = mac[mac.length - 1] & 0xf;
+  const value = (mac.readUInt32BE(offset) & 0x7fffffff) % 1_000_000;
+  return value.toString().padStart(6, "0");
+}
+
+/** The code dialog Lepton opens for step-up. */
+export function stepUpDialog(page: Page): Locator {
+  return page.getByTestId("step-up-dialog");
+}
+
 /** Display names the host seeds, which the person pickers search by. */
 export const PEOPLE = {
   admin: "Ada Admin",
   requestor: "Rae Requestor",
   outsider: "Otto Outsider",
+  kenji: "Kenji Watanabe",
 } as const;
 
 /** Display name of the service user `admin` owns (`admin-agent`). */

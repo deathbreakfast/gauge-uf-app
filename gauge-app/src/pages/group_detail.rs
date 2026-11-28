@@ -42,7 +42,7 @@ use crate::pages::shared::request_access::{
     requested_for_handle, wants_request_dialog, RequestAccessDialog,
 };
 use crate::pages::shared::resource_cards::GroupResourceAccessCard;
-use crate::pages::shared::words::{first_name, kind_word, when_view};
+use crate::pages::shared::words::{first_name, kind_word, plain_name, when_view};
 use crate::pages::step_up::{spawn_with_fresh_totp_to, spawn_with_step_up_to};
 use crate::resource_access::ManagedGroupDto;
 use crate::server::viewer::{use_viewer_access, viewer_now};
@@ -213,6 +213,8 @@ pub fn GroupDetailPage() -> impl IntoView {
     let params = use_params_map();
     let group_id = Memo::new(move |_| params.read().get("id").unwrap_or_default());
     let refresh = RwSignal::new(0u64);
+    // Lives above the Transition, so a refetch after a change keeps the open tab.
+    let tab = RwSignal::new(TAB_MEMBERS.to_string());
     let _viewer = use_viewer_access();
     let detail = Resource::new(
         move || (group_id.get(), refresh.get()),
@@ -238,7 +240,7 @@ pub fn GroupDetailPage() -> impl IntoView {
         <ContentContainer max_width="1100px" data_testid="gauge-group-page">
             <Transition fallback=skeleton>
                 {move || detail.get().map(|result| match result {
-                    Ok(Some(row)) => view! { <GroupLoaded row=row refresh=refresh /> }.into_any(),
+                    Ok(Some(row)) => view! { <GroupLoaded row=row refresh=refresh tab=tab /> }.into_any(),
                     Ok(None) => {
                         let navigate = navigate.clone();
                         view! {
@@ -277,7 +279,11 @@ pub fn GroupDetailPage() -> impl IntoView {
 
 /// The page once the group loaded.
 #[component]
-fn GroupLoaded(row: PermissionGroupDetailDto, refresh: RwSignal<u64>) -> impl IntoView {
+fn GroupLoaded(
+    row: PermissionGroupDetailDto,
+    refresh: RwSignal<u64>,
+    tab: RwSignal<String>,
+) -> impl IntoView {
     let viewer = use_viewer_access();
     let row = StoredValue::new(row);
     let group_id = row.with_value(|r| r.id.clone());
@@ -298,7 +304,6 @@ fn GroupLoaded(row: PermissionGroupDetailDto, refresh: RwSignal<u64>) -> impl In
     let is_admin = Signal::derive(move || viewer_now(viewer).gauge_admin);
     let can_request = row.with_value(|r| r.can_request_access);
 
-    let tab = RwSignal::new(TAB_MEMBERS.to_string());
     let notice = RwSignal::new(None::<Notice>);
     let notice_seq = RwSignal::new(0u64);
     let error = RwSignal::new(None::<String>);
@@ -348,7 +353,7 @@ fn GroupLoaded(row: PermissionGroupDetailDto, refresh: RwSignal<u64>) -> impl In
             };
             notice.set(None);
             let gid = group_id.clone();
-            let label = principal.label.clone();
+            let label = plain_name(&principal.label);
             let kind = principal.kind.clone();
             let pid = principal.id.clone();
             let done = Callback::new(move |()| refresh.update(|n| *n += 1));
@@ -371,7 +376,7 @@ fn GroupLoaded(row: PermissionGroupDetailDto, refresh: RwSignal<u64>) -> impl In
     let owners_labels = row.with_value(|r| {
         r.owner_users
             .iter()
-            .map(|o| o.label.clone())
+            .map(|o| plain_name(&o.label))
             .collect::<Vec<_>>()
     });
     let member_count = row.with_value(|r| r.members.len());
@@ -425,20 +430,20 @@ fn GroupLoaded(row: PermissionGroupDetailDto, refresh: RwSignal<u64>) -> impl In
                     </Flex>
                     <div id="gauge-group-actions">
                         <Flex gap=FlexGap::Small>
-                            <Show when=move || can_manage.get() && managed().is_none()>
-                                <div id="gauge-group-add-members">
+                            <div id="gauge-group-add-members">
+                                <Show when=move || can_manage.get() && managed().is_none()>
                                     <Button appearance=ButtonAppearance::Primary on_click=Callback::new(move |_| add_open.set(true))>
                                         "Add members"
                                     </Button>
-                                </div>
-                            </Show>
-                            <Show when=move || !can_manage.get() && can_request>
-                                <div id="gauge-group-request-access">
+                                </Show>
+                            </div>
+                            <div id="gauge-group-request-access">
+                                <Show when=move || !can_manage.get() && can_request>
                                     <Button appearance=ButtonAppearance::Primary on_click=Callback::new(move |_| request_open.set(true))>
                                         "Request access"
                                     </Button>
-                                </div>
-                            </Show>
+                                </Show>
+                            </div>
                             <Show when=move || is_admin.get()>
                                 <div id="gauge-group-more">
                                     <Menu on_select=move |action: &str| match action {
@@ -572,7 +577,7 @@ fn MembersTab(
         };
         let principal = target.principal.clone();
         let confirm = remove_action(&target);
-        let label = principal.label.clone();
+        let label = plain_name(&principal.label);
         let first = first_name(&label);
         let undo_principal = principal.clone();
         let done = Callback::new(move |()| {
@@ -686,6 +691,7 @@ fn MembersTab(
 /// Members of a managed group, read-only: the managing product owns the list.
 #[component]
 fn ManagedMembers(members: Vec<PrincipalRefDto>, managed: ManagedGroupDto) -> impl IntoView {
+    let title = format!("Members ({})", members.len());
     let caption = format!("Read-only: {} manages this list.", managed.source_label);
     let empty_message = if managed.archived {
         "No members while the team is archived."
@@ -695,6 +701,7 @@ fn ManagedMembers(members: Vec<PrincipalRefDto>, managed: ManagedGroupDto) -> im
     view! {
         <div data-testid="gauge-group-managed-members">
             <Flex vertical=true gap=FlexGap::Small>
+                <Body1Strong>{title}</Body1Strong>
                 <Caption1>{caption}</Caption1>
                 {if members.is_empty() {
                     view! { <EmptyState message=empty_message /> }.into_any()
@@ -809,7 +816,7 @@ fn OwnersTab(
         confirm_open.set(false);
         let gid = row.with_value(|r| r.id.clone());
         let gname = row.with_value(|r| r.name.clone());
-        let label = owner.label.clone();
+        let label = plain_name(&owner.label);
         let first = first_name(&label);
         let confirm = format!("Remove {label} as an owner of {gname}");
         let still_member = row.with_value(|r| r.members.iter().any(|m| m.id == owner.id));
@@ -932,7 +939,7 @@ fn OwnersTab(
             <Dialog open=confirm_open>
                 <DialogSurface>
                     <DialogBody>
-                        <DialogTitle>{move || pending.get().map(|o| format!("Remove {} as an owner of {}?", o.label, row.with_value(|r| r.name.clone()))).unwrap_or_default()}</DialogTitle>
+                        <DialogTitle>{move || pending.get().map(|o| format!("Remove {} as an owner of {}?", plain_name(&o.label), row.with_value(|r| r.name.clone()))).unwrap_or_default()}</DialogTitle>
                         <DialogContent>
                             <div data-testid="gauge-group-owner-remove-confirm">
                                 <Flex vertical=true gap=FlexGap::Small>

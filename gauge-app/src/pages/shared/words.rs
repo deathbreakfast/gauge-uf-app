@@ -39,10 +39,32 @@ pub fn kind_word(kind: &PrincipalKind, owner_label: Option<&str>) -> String {
     }
 }
 
-/// A first name for sentences ("Ravi loses"): the label's first word.
+/// A label without Gauge's short-id suffix, for sentences: "Ravi Menon (h3jx6p)" reads
+/// "Ravi Menon". Lists keep the suffix so two people with one name stay apart.
+#[must_use]
+pub fn plain_name(label: &str) -> String {
+    let trimmed = label.trim();
+    if let Some(open) = trimmed.rfind(" (") {
+        let inner = &trimmed[open + 2..];
+        if let Some(id) = inner.strip_suffix(')') {
+            if !id.is_empty()
+                && id.len() <= 6
+                && id
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            {
+                return trimmed[..open].to_string();
+            }
+        }
+    }
+    trimmed.to_string()
+}
+
+/// A first name for sentences ("Ravi loses"): the plain name's first word.
 #[must_use]
 pub fn first_name(label: &str) -> String {
-    label.split_whitespace().next().unwrap_or(label).to_string()
+    let name = plain_name(label);
+    name.split_whitespace().next().unwrap_or(&name).to_string()
 }
 
 /// An RFC 3339 instant as an Orbital date.
@@ -85,6 +107,8 @@ mod tests {
             "Service user · Sol Bergström's"
         );
         assert_eq!(first_name("Ravi Menon"), "Ravi");
+        assert_eq!(plain_name("Ravi Menon (h3jx6p)"), "Ravi Menon");
+        assert_eq!(plain_name("Release (2026 train)"), "Release (2026 train)");
         assert_eq!(first_name(""), "");
     }
 }
