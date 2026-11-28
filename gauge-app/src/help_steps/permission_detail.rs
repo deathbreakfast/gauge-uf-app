@@ -1,11 +1,11 @@
-//! Spotlight steps for Permission detail (`/permission/permissions/:id`).
+//! Spotlight steps for a permission's page (`/permission/permissions/:id`).
 
 use leptos::prelude::*;
 use uf_help_macros::help_spotlight_step;
 
 use super::help_stack;
 
-/// Permission detail header intro.
+/// Permission page intro.
 #[help_spotlight_step(
     route = "/permission/permissions/:id",
     feature_highlight = "permission-detail-intro",
@@ -18,146 +18,65 @@ use super::help_stack;
 pub fn PermissionDetailIntroHelp() -> impl IntoView {
     help_stack(
         "help-step-permission-detail-intro",
-        "This page is one permission, one key. Here you see who owns it, who may use it (the allow list), and how it changed over time.",
-        Some("Editing needs owner or admin rights; everyone signed in can still learn the layout."),
+        "Code checks the key; everyone else reads the name and description.",
+        Some("Owned by names the group whose owners decide who gets it."),
         &[],
     )
 }
 
-/// Request Access on permission detail.
+/// Give access, for editors.
+#[help_spotlight_step(
+    route = "/permission/permissions/:id",
+    feature_highlight = "permission-detail-give",
+    title = "Give access",
+    spotlight = "gauge-perm-give",
+    position = "bottom",
+    order = 20
+)]
+#[component]
+pub fn PermissionDetailGiveHelp() -> impl IntoView {
+    help_stack(
+        "help-step-permission-detail-give",
+        "When a group already holds this permission, adding the person to that group keeps access in one place.",
+        Some("Each change asks for your authenticator code."),
+        &[],
+    )
+}
+
+/// Who has access, Allow list and Activity.
+#[help_spotlight_step(
+    route = "/permission/permissions/:id",
+    feature_highlight = "permission-detail-tabs",
+    title = "Who has it, and why",
+    spotlight = "gauge-perm-tabs",
+    position = "top",
+    order = 30
+)]
+#[component]
+pub fn PermissionDetailTabsHelp() -> impl IntoView {
+    help_stack(
+        "help-step-permission-detail-tabs",
+        "Who has access lists everyone who passes the check today and the path that gives it to them. The allow list holds only the direct grants.",
+        Some("Removing someone from the allow list takes away only what that list gave them."),
+        &[],
+    )
+}
+
+/// Request access, for people who can't edit.
 #[help_spotlight_step(
     route = "/permission/permissions/:id",
     feature_highlight = "permission-detail-request",
     title = "Ask for access",
     spotlight = "gauge-perm-request-access",
     position = "bottom",
-    order = 20
+    order = 40
 )]
 #[component]
 pub fn PermissionDetailRequestHelp() -> impl IntoView {
     help_stack(
         "help-step-permission-detail-request",
-        "If you need this key and cannot change the allow list, Request Access sends a written ask to the owners.",
-        Some("They approve or deny it under Requests. The button appears only when you are allowed to ask."),
-        &[],
-    )
-}
-
-/// Edit permission definition fields.
-#[help_spotlight_step(
-    route = "/permission/permissions/:id",
-    feature_highlight = "permission-detail-edit",
-    title = "Edit the definition",
-    spotlight = "gauge-perm-edit-form",
-    position = "top",
-    order = 30
-)]
-#[component]
-pub fn PermissionDetailEditHelp() -> impl IntoView {
-    help_stack(
-        "help-step-permission-detail-edit",
-        "These fields describe the key. Edits stay local until you press Save Changes. If you cannot edit, the fields still show how the key is defined.",
+        "Request access asks the owners for this permission. You'll see their answer under Requests.",
         None,
-        &[
-            "Name: search label",
-            "Description: when to use it",
-            "Owners group: who maintains this key",
-            "Domain: which shelf it sits on",
-        ],
-    )
-}
-
-/// Show History on permission detail.
-#[help_spotlight_step(
-    route = "/permission/permissions/:id",
-    feature_highlight = "permission-detail-history",
-    title = "Change history",
-    spotlight = "gauge-show-history",
-    position = "top",
-    order = 40
-)]
-#[component]
-pub fn PermissionDetailHistoryHelp() -> impl IntoView {
-    help_stack(
-        "help-step-permission-detail-history",
-        "Show History opens a log of past edits and allow-list changes for this permission.",
-        Some("If you are not allowed to view it, you see a clear \"not authorized\" message instead of rows. The dialog stays closed until you open it."),
-        &[],
-    )
-}
-
-/// Delete permission action.
-#[help_spotlight_step(
-    route = "/permission/permissions/:id",
-    feature_highlight = "permission-detail-delete",
-    title = "Delete this permission",
-    spotlight = "gauge-perm-delete",
-    position = "top",
-    order = 50
-)]
-#[component]
-pub fn PermissionDetailDeleteHelp() -> impl IntoView {
-    help_stack(
-        "help-step-permission-detail-delete",
-        "Delete Permission removes this key from the cabinet. Treat it as permanent.",
-        Some("You need owner or admin rights. After delete you return to the permissions list."),
-        &[],
-    )
-}
-
-/// Save permission edits.
-#[help_spotlight_step(
-    route = "/permission/permissions/:id",
-    feature_highlight = "permission-detail-save",
-    title = "Save changes",
-    spotlight = "gauge-perm-save",
-    position = "top",
-    order = 60
-)]
-#[component]
-pub fn PermissionDetailSaveHelp() -> impl IntoView {
-    help_stack(
-        "help-step-permission-detail-save",
-        "Save Changes writes your edits to this permission. Nothing on the form is live until you save.",
-        Some("Use it after you change name, description, owners, or domain."),
-        &[],
-    )
-}
-
-/// Add principal to allow list.
-#[help_spotlight_step(
-    route = "/permission/permissions/:id",
-    feature_highlight = "permission-detail-allow-add",
-    title = "Add to the allow list",
-    spotlight = "gauge-perm-allow-picker",
-    position = "bottom",
-    order = 70
-)]
-#[component]
-pub fn PermissionDetailAllowAddHelp() -> impl IntoView {
-    help_stack(
-        "help-step-permission-detail-allow-add",
-        "The allow list is who holds this key: people or groups that inherit the capability.",
-        Some("Use the picker to search and add a principal. Adding someone changes real access; only do it when you mean to grant the key."),
-        &[],
-    )
-}
-
-/// Remove principal from allow list.
-#[help_spotlight_step(
-    route = "/permission/permissions/:id",
-    feature_highlight = "permission-detail-allow-remove",
-    title = "Remove from the allow list",
-    spotlight = "gauge-perm-allow-remove",
-    position = "left",
-    order = 80
-)]
-#[component]
-pub fn PermissionDetailAllowRemoveHelp() -> impl IntoView {
-    help_stack(
-        "help-step-permission-detail-allow-remove",
-        "Each allow-list row has a menu (⋮). Remove takes that person or group off the key after you confirm.",
-        Some("Use it when someone should no longer hold this capability."),
         &[],
     )
 }

@@ -37,6 +37,9 @@ pub struct SeedRequest {
     /// When true, make the service user `admin` owns a member of the fixture group.
     #[serde(default)]
     pub service_user_member: bool,
+    /// When true, put Release Captains back: `requestor` a member, `outsider` an owner.
+    #[serde(default)]
+    pub reset_release_captains: bool,
 }
 
 fn default_auth() -> String {
@@ -213,6 +216,18 @@ pub async fn seed_data(
         })?;
     }
 
+    if body.reset_release_captains {
+        let admin_ctx = e2e_system_valence().with_actor(Actor::User {
+            user_id: "admin".to_string(),
+        });
+        crate::e2e_valence::reset_release_captains(&admin_ctx, &fixtures.release_group_id)
+            .await
+            .map_err(|e| {
+                log::error!("seed reset_release_captains failed: {e:#}");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+    }
+
     Ok(Json(serde_json::json!({
         "ok": true,
         "auth": kind.as_str(),
@@ -233,6 +248,8 @@ pub async fn seed_data(
             "team_group_id": fixtures.resource.team_group_id,
             "archived_team_group_id": fixtures.resource.archived_team_group_id,
             "resource_request_id": fixtures.resource.resource_request_id,
+            "release_group_id": fixtures.release_group_id,
+            "release_permission_id": fixtures.release_permission_id,
         }
     })))
 }

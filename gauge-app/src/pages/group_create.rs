@@ -6,15 +6,44 @@ use leptos_router::NavigateOptions;
 use uf_product::components::{Body1, Caption1, Card};
 use uf_product::components::{ContentContainer, SpacingSize, Title3};
 use uf_product::primitives::{
-    Button, ButtonAppearance, Field, Flex, FlexAlign, FlexGap, FlexJustify, Input, MessageBar,
-    MessageBarIntent, Textarea,
+    Button, ButtonAppearance, Field, Flex, FlexAlign, FlexGap, FlexJustify, Input, MarkdownEditor,
+    MessageBar, MessageBarIntent,
 };
 
+use crate::pages::shared::denied::{DeniedPage, ASK_FOR_GAUGE_ADMIN_HREF};
 use crate::server::create_group;
+use crate::server::viewer::use_viewer_access;
 
 /// Form page for creating a new permission group; navigates to the detail page on success.
+/// Gauge admins get the form; anyone else gets the denied page first.
 #[component]
 pub fn GroupCreatePage() -> impl IntoView {
+    let viewer = use_viewer_access();
+    view! {
+        <Suspense fallback=|| ()>
+            <Show
+                when=move || viewer.get().and_then(Result::ok).is_some_and(|v| v.gauge_admin)
+                fallback=|| view! {
+                    <ContentContainer max_width="900px">
+                        <DeniedPage
+                            heading="Creating groups needs GaugeAdmin"
+                            text="Ask a Gauge admin to create the group, or ask for GaugeAdmin if you look after access for your team."
+                            action="Ask for GaugeAdmin"
+                            action_href=ASK_FOR_GAUGE_ADMIN_HREF
+                            parent=("Groups", crate::paths::GROUPS)
+                            current="Create group"
+                        />
+                    </ContentContainer>
+                }
+            >
+                <GroupCreateForm />
+            </Show>
+        </Suspense>
+    }
+}
+
+#[component]
+fn GroupCreateForm() -> impl IntoView {
     let navigate = use_navigate();
     let navigate_submit = navigate.clone();
     let name = RwSignal::new(String::new());
@@ -58,7 +87,7 @@ pub fn GroupCreatePage() -> impl IntoView {
                             <Input bind=name />
                         </Field>
                         <Field label="Description">
-                            <Textarea bind=description />
+                            <MarkdownEditor value=description aria_label="Description" />
                         </Field>
                         <Show when=move || error.get().is_some()>
                             <MessageBar intent=MessageBarIntent::Error>

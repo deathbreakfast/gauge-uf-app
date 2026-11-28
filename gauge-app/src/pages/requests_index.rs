@@ -25,6 +25,7 @@ const fn request_status_label(status: &PermissionRequestStatusDto) -> &'static s
         PermissionRequestStatusDto::Pending => "PENDING",
         PermissionRequestStatusDto::Approved => "APPROVED",
         PermissionRequestStatusDto::Denied => "DENIED",
+        PermissionRequestStatusDto::Withdrawn => "WITHDRAWN",
     }
 }
 
@@ -327,6 +328,11 @@ mod tests {
             created_at: String::new(),
             updated_at: String::new(),
             can_review: false,
+            requester_label: "Rae Requestor".into(),
+            decided_by: None,
+            decided_by_label: None,
+            decided_at: None,
+            deny_reason: None,
             on_behalf_of: for_handle.map(|handle| PrincipalRefDto {
                 kind: PrincipalKind::ServiceUser,
                 id: "su1".into(),

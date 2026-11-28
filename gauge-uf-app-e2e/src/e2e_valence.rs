@@ -23,9 +23,6 @@ use valence::{
 struct E2eState {
     router: Arc<DatabaseRouter>,
     higgs: Arc<HiggsConfig>,
-    /// Lets the axum-login backend load users as a System actor, the way lepton hosts do;
-    /// the request factory refuses System actors from outside.
-    auth_valence_factory: Arc<dyn HiggsValenceFactory>,
     default_backend_key: String,
     fixtures: Mutex<FixtureIds>,
 }
@@ -48,6 +45,11 @@ pub struct FixtureIds {
     pub foreign_service_user_handle: String,
     /// Resource bundle, team groups and resource request.
     pub resource: crate::resource_access_seed::ResourceFixtures,
+    /// "Release Captains": owned by `admin` and `outsider` (who isn't a Gauge admin); members
+    /// `requestor` and the nested group "On-call SRE", whose member is `kenji`.
+    pub release_group_id: String,
+    /// "Approve releases" (`ApproveRelease`), on Release Captains' allow list.
+    pub release_permission_id: String,
 }
 
 static E2E_STATE: OnceLock<Arc<E2eState>> = OnceLock::new();
@@ -206,10 +208,93 @@ fn prepare_env() {
     valence::clear_for_test();
     // SAFETY: host boot only.
     unsafe {
+        // Lets Lepton re-seal the lab admin's plaintext TOTP secret after a good code.
+        std::env::set_var("LEPTON_TOTP_ALLOW_TEST_SEAL_KEY", "1");
         if std::env::var_os("VALENCE_OWNERSHIP_UNIFIED_FETCH").is_none() {
             std::env::set_var("VALENCE_OWNERSHIP_UNIFIED_FETCH", "0");
         }
     }
+}
+
+/// RFC 6238 secret (base32) of the lab admin's authenticator. Playwright computes codes
+/// from it (`fixtures.ts`, `totpCode`).
+pub const HARNESS_TOTP_SECRET: &str = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+
+/// The usability fixture: a permission held through a nested group, a group with an owner
+/// who isn't a Gauge admin, and a second Super User owner (`kenji`). Runs while `admin` is
+/// still Super User. Returns `(release_group_id, release_permission_id)`.
+async fn seed_release_captains(
+    admin_ctx: &Valence,
+    domain_id: &str,
+) -> anyhow::Result<(String, String)> {
+    let captains = service::create_group(
+        PermissionGroupCreateInput {
+            name: "Release Captains".into(),
+            description: "People who run the weekly release train.".into(),
+        },
+        admin_ctx,
+    )
+    .await?;
+    let captains_id = record_pk_id(captains.id());
+    let sre = service::create_group(
+        PermissionGroupCreateInput {
+            name: "On-call SRE".into(),
+            description: "Whoever is on call this week.".into(),
+        },
+        admin_ctx,
+    )
+    .await?;
+    let sre_id = record_pk_id(sre.id());
+    service::add_group_member_group(&captains_id, &sre_id, admin_ctx).await?;
+    service::add_group_member_user(&sre_id, "kenji", admin_ctx).await?;
+    reset_release_captains(admin_ctx, &captains_id).await?;
+    let permission = service::create_permission(
+        PermissionCreateInput {
+            display_name: "Approve releases".into(),
+            name: "ApproveRelease".into(),
+            description: "Sign off a release **before** it ships.".into(),
+            domain_id: domain_id.to_string(),
+            owners_group_id: String::new(),
+        },
+        admin_ctx,
+    )
+    .await?;
+    let permission_id = record_pk_id(permission.id());
+    service::grant_permission_to_group(&permission_id, &captains_id, admin_ctx).await?;
+    service::add_group_owner_user(gauge::super_user::SUPER_USER_GROUP_ID, "admin", admin_ctx)
+        .await?;
+    service::add_group_owner_user(gauge::super_user::SUPER_USER_GROUP_ID, "kenji", admin_ctx)
+        .await?;
+    Ok((captains_id, permission_id))
+}
+
+/// Put Release Captains back as specs expect it: `requestor` a member, `outsider` an owner.
+pub async fn reset_release_captains(admin_ctx: &Valence, captains_id: &str) -> anyhow::Result<()> {
+    service::add_group_member_user(captains_id, "requestor", admin_ctx).await?;
+    service::add_group_owner_user(captains_id, "outsider", admin_ctx).await?;
+    Ok(())
+}
+
+/// Give `admin` an enabled authenticator so specs can type real step-up codes.
+async fn enroll_admin_authenticator(system: &Valence) {
+    use lepton_host_adapter::generated::TotpFactor;
+
+    let now = Utc::now();
+    let factor = TotpFactor::new(
+        RecordId::new("user", "admin"),
+        HARNESS_TOTP_SECRET.to_string(),
+        None,
+        None,
+        None,
+        Some(now),
+        Some(now),
+        now,
+        now,
+    )
+    .expect("totp factor");
+    TotpFactor::upsert("admin_totp", factor, system, valence::use_!(r#"**Test:** Fixture **Totp Factor** save for `e2e_valence` so Playwright can type real step-up codes as the lab admin. CI and developers running the suite only."#))
+        .await
+        .expect("enroll admin authenticator");
 }
 
 fn record_pk_id(rid: Option<&RecordId>) -> String {
@@ -239,11 +324,12 @@ async fn seed_user(id: &str, email_verified: bool, valence: &Valence) {
 }
 
 /// Display names the person pickers search by, one per seeded user.
-const DISPLAY_NAMES: [(&str, &str); 4] = [
+const DISPLAY_NAMES: [(&str, &str); 5] = [
     ("admin", "Ada Admin"),
     ("requestor", "Rae Requestor"),
     ("outsider", "Otto Outsider"),
     ("unverified", "Uma Unverified"),
+    ("kenji", "Kenji Watanabe"),
 ];
 
 /// Give seeded user `id` a profile, since people search finds people by display name.
@@ -455,6 +541,7 @@ pub async fn init_e2e_valence() {
     seed_user("requestor", true, &system).await;
     seed_user("outsider", true, &system).await;
     seed_user("unverified", false, &system).await;
+    seed_user("kenji", true, &system).await;
     for (id, display_name) in DISPLAY_NAMES {
         seed_profile(id, display_name, &system).await;
     }
@@ -497,18 +584,21 @@ pub async fn init_e2e_valence() {
         .await
         .expect("seed resource access");
 
+    let (release_group_id, release_permission_id) =
+        seed_release_captains(&admin_ctx, &fixtures.domain_a_id)
+            .await
+            .expect("seed release captains");
+    fixtures.release_group_id = release_group_id;
+    fixtures.release_permission_id = release_permission_id;
+
     demote_admin_from_super_user(&system).await;
+    enroll_admin_authenticator(&system).await;
 
     let factory: Arc<dyn HiggsValenceFactory> = Arc::new(HiggsFactory(RouterValenceFactory::new(
         Arc::clone(&router),
         RouterValenceFactoryConfig::new(default_key.clone())
             .actor_json_policy(external_actor_json_policy()),
     )));
-    let auth_valence_factory: Arc<dyn HiggsValenceFactory> =
-        Arc::new(HiggsFactory(RouterValenceFactory::new(
-            Arc::clone(&router),
-            RouterValenceFactoryConfig::new(default_key.clone()),
-        )));
     let higgs = Arc::new(
         HiggsConfig::builder()
             .valence_factory_arc(factory)
@@ -519,7 +609,6 @@ pub async fn init_e2e_valence() {
     let state = Arc::new(E2eState {
         router,
         higgs,
-        auth_valence_factory,
         default_backend_key: default_key,
         fixtures: Mutex::new(fixtures),
     });
@@ -565,6 +654,7 @@ async fn bootstrap_fixtures(system: &Valence, admin_ctx: &Valence) -> anyhow::Re
 
     let permission = service::create_permission(
         PermissionCreateInput {
+            display_name: String::new(),
             name: "CanDeploy".into(),
             description: "e2e deploy permission".into(),
             domain_id: record_pk_id(domain_a.id()),
@@ -612,6 +702,8 @@ async fn bootstrap_fixtures(system: &Valence, admin_ctx: &Valence) -> anyhow::Re
         service_user_handle: REQUESTOR_SERVICE_USER.into(),
         foreign_service_user_handle: ADMIN_SERVICE_USER.into(),
         resource: Default::default(),
+        release_group_id: String::new(),
+        release_permission_id: String::new(),
     })
 }
 
@@ -628,11 +720,6 @@ pub fn e2e_router() -> Arc<DatabaseRouter> {
 
 pub fn e2e_higgs_config() -> Arc<HiggsConfig> {
     Arc::clone(&state().higgs)
-}
-
-/// The factory the axum-login backend loads signed-in users through.
-pub fn e2e_valence_factory() -> Arc<dyn HiggsValenceFactory> {
-    Arc::clone(&state().auth_valence_factory)
 }
 
 pub fn e2e_fixtures() -> FixtureIds {

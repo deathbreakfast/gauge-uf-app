@@ -16,7 +16,6 @@ crate-type = ["cdylib", "rlib"]
 anyhow = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
-axum-login = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 console_log = { version = "1", optional = true }
@@ -30,7 +29,7 @@ lepton = { workspace = true, optional = true }
 lepton-app = { workspace = true, default-features = false, optional = true }
 lepton-auth = { workspace = true, default-features = false, optional = true }
 lepton-identity = { workspace = true, optional = true }
-# SSR only: the axum-login backend lepton's people search reads the signed-in user from.
+# SSR only: the TOTP factor model, to enroll the lab admin's authenticator.
 lepton-host-adapter = { workspace = true, default-features = false, optional = true }
 leptos = { workspace = true }
 leptos_axum = { workspace = true, optional = true, default-features = true }
@@ -100,7 +99,6 @@ ssr = [
     "lepton-app/ssr",
     "dep:lepton-host-adapter",
     "lepton-host-adapter/ssr",
-    "dep:axum-login",
 ]
 
 [[bin]]

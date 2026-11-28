@@ -9,7 +9,9 @@
 //! ## Security map
 //!
 //! - Every endpoint requires an authenticated session (fail closed).
-//! - Admin mutations and principal search require `GaugeAdmin`.
+//! - Creating, editing and deleting records, and principal search, require `GaugeAdmin`.
+//! - Member, owner and allow-list changes need a session plus a step-up code; Gauge
+//!   itself allows them only for the record's owners and Gauge admins.
 //! - Request workflow endpoints require session only; service-layer owner/reviewer
 //!   checks still apply.
 //! - Fine-grained ownership checks live in [`gauge::service`].
@@ -22,6 +24,11 @@ use gauge::types::{
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 use uf_search_core::{SearchSourceItem, SearchSourceKey};
+
+#[cfg(feature = "ssr")]
+mod activity;
+/// [`viewer::get_viewer_access`] — what the signed-in person may do, read once per page.
+pub mod viewer;
 
 use crate::resource_access::{
     GroupResourceAccessRow, GroupRowDto, ManagedGroupDto, ResourceBundleDto, ResourceLink,
@@ -43,10 +50,27 @@ fn require_session(ctx: &higgs::Higgs) -> Result<(), ServerFnError> {
 }
 
 /// Log once at the Higgs boundary, then return a UI-facing `ServerFnError`.
+///
+/// Gauge's own refusals keep a prefix the error bar reads (`not_authorized:`,
+/// `not_found:`, `validation:`); anything else is a store failure.
 #[cfg(feature = "ssr")]
-fn map_service_err(op: &'static str, e: impl std::fmt::Display) -> ServerFnError {
+fn map_service_err<E: std::fmt::Display + 'static>(op: &'static str, e: E) -> ServerFnError {
+    use gauge::service::GaugeServiceError;
     tracing::error!(error = %e, operation = op, "gauge service failed");
-    ServerFnError::new(format!("Failed to {op}: {e}"))
+    let any: &dyn std::any::Any = &e;
+    let gauge_err = any
+        .downcast_ref::<anyhow::Error>()
+        .and_then(|e| e.downcast_ref::<GaugeServiceError>())
+        .or_else(|| any.downcast_ref::<GaugeServiceError>());
+    let class = match gauge_err {
+        Some(GaugeServiceError::NotAuthorized { .. }) => "not_authorized",
+        Some(GaugeServiceError::NotFound { .. }) => "not_found",
+        Some(GaugeServiceError::Validation { .. }) => "validation",
+        Some(GaugeServiceError::Invariant { .. }) | None => {
+            return ServerFnError::new(format!("Failed to {op}: {e}"))
+        }
+    };
+    ServerFnError::new(format!("{class}: {e}"))
 }
 
 #[cfg(feature = "ssr")]
@@ -275,8 +299,11 @@ pub async fn create_permission(
 pub struct UpdatePermissionInput {
     /// Permission id to update.
     pub id: String,
-    /// New display name.
+    /// The key code checks. Pass the current key; it never changes after create.
     pub name: String,
+    /// The name people read. Empty leaves it as it is.
+    #[serde(default)]
+    pub display_name: String,
     /// New description.
     pub description: String,
     /// New owners group id.
@@ -293,16 +320,22 @@ pub async fn update_permission(
 ) -> Result<(), ServerFnError> {
     let ctx = higgs::Higgs::from_request().await?;
     require_session(&ctx)?;
+    let v = valence_from_ctx(&ctx)?;
     gauge::service::update_permission(
         &input.id,
         input.name,
         input.description,
         input.owners_group_id,
         input.domain_id,
-        &valence_from_ctx(&ctx)?,
+        &v,
     )
     .await
     .map_err(|e| map_service_err("update permission", e))?;
+    if !input.display_name.trim().is_empty() {
+        gauge::service::set_permission_display_name(&input.id, &input.display_name, &v)
+            .await
+            .map_err(|e| map_service_err("rename permission", e))?;
+    }
     Ok(())
 }
 
@@ -382,7 +415,7 @@ pub async fn delete_group(
 }
 
 /// Grant a permission directly to a user.
-#[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
+#[uf_product_macros::server(step_up)]
 pub async fn add_permission_user(
     /// Unique identifier of the permission to grant.
     permission_id: String,
@@ -398,7 +431,7 @@ pub async fn add_permission_user(
 }
 
 /// Revoke a direct user permission grant.
-#[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
+#[uf_product_macros::server(step_up)]
 pub async fn remove_permission_user(
     /// Unique identifier of the permission to revoke.
     permission_id: String,
@@ -414,7 +447,7 @@ pub async fn remove_permission_user(
 }
 
 /// Grant a permission to a group.
-#[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
+#[uf_product_macros::server(step_up)]
 pub async fn add_permission_group(
     /// Unique identifier of the permission to grant.
     permission_id: String,
@@ -430,7 +463,7 @@ pub async fn add_permission_group(
 }
 
 /// Revoke a group permission grant.
-#[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
+#[uf_product_macros::server(step_up)]
 pub async fn remove_permission_group(
     /// Unique identifier of the permission to revoke.
     permission_id: String,
@@ -450,7 +483,7 @@ pub async fn remove_permission_group(
 }
 
 /// Add a user as a member of a group.
-#[uf_product_macros::server(permission = "GaugeAdmin")]
+#[uf_product_macros::server]
 pub async fn add_group_user(
     /// Unique identifier of the group to add the member to.
     group_id: String,
@@ -469,7 +502,7 @@ pub async fn add_group_user(
 }
 
 /// Add a user as an owner of a group.
-#[uf_product_macros::server(permission = "GaugeAdmin")]
+#[uf_product_macros::server]
 pub async fn add_group_owner_user(
     /// Unique identifier of the group to add the owner to.
     group_id: String,
@@ -488,7 +521,7 @@ pub async fn add_group_owner_user(
 }
 
 /// Remove a user from the owner list of a group.
-#[uf_product_macros::server(permission = "GaugeAdmin")]
+#[uf_product_macros::server]
 pub async fn remove_group_owner_user(
     /// Unique identifier of the group to remove the owner from.
     group_id: String,
@@ -507,7 +540,7 @@ pub async fn remove_group_owner_user(
 }
 
 /// Remove a user from group membership.
-#[uf_product_macros::server(permission = "GaugeAdmin")]
+#[uf_product_macros::server]
 pub async fn remove_group_user(
     /// Unique identifier of the group to remove the member from.
     group_id: String,
@@ -526,7 +559,7 @@ pub async fn remove_group_user(
 }
 
 /// Remove a service user from group membership.
-#[uf_product_macros::server(permission = "GaugeAdmin")]
+#[uf_product_macros::server]
 pub async fn remove_group_service_user(
     /// Unique identifier of the group to remove the member from.
     group_id: String,
@@ -554,7 +587,7 @@ pub async fn remove_group_service_user(
 ///
 /// Gauge refuses the Super User group, a group the caller doesn't own, and a service user
 /// the caller can't see (its owner, or someone who manages every service user).
-#[uf_product_macros::server(permission = "GaugeAdmin")]
+#[uf_product_macros::server]
 pub async fn add_group_service_user(
     /// Unique identifier of the group to add the member to.
     group_id: String,
@@ -579,7 +612,7 @@ pub async fn add_group_service_user(
 }
 
 /// Add a child group relationship to a parent group.
-#[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
+#[uf_product_macros::server(step_up)]
 pub async fn add_group_group(
     /// Unique identifier of the parent group.
     group_id: String,
@@ -595,7 +628,7 @@ pub async fn add_group_group(
 }
 
 /// Remove a child group relationship from a parent group.
-#[uf_product_macros::server(permission = "GaugeAdmin", step_up)]
+#[uf_product_macros::server(step_up)]
 pub async fn remove_group_group(
     /// Unique identifier of the parent group.
     group_id: String,
@@ -1242,5 +1275,252 @@ pub async fn list_group_resource_access(
         rows.push(GroupResourceAccessRow { resource, role });
     }
     rows.sort_by_key(|row| row.resource.title());
+    Ok(rows)
+}
+
+// ---------------------------------------------------------------------------------------
+// Who has access and why, people, activity and request decisions.
+
+/// Everyone who passes a permission's check, with every path that gives it to them.
+///
+/// Gauge lets the permission's owners and Gauge admins read this.
+#[uf_product_macros::server]
+pub async fn get_effective_holders(
+    /// Permission id.
+    permission_id: String,
+) -> Result<Vec<gauge::types::HolderRow>, ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    gauge::service::list_effective_holders(&permission_id, &valence_from_ctx(&ctx)?)
+        .await
+        .map_err(|e| map_service_err("list who has this permission", e))
+}
+
+/// What every member of a group gets from it. The group's owners and Gauge admins may read it.
+#[uf_product_macros::server]
+pub async fn get_group_access(
+    /// Group id.
+    group_id: String,
+) -> Result<Vec<gauge::types::PermissionRef>, ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    gauge::service::list_group_access(&group_id, &valence_from_ctx(&ctx)?)
+        .await
+        .map_err(|e| map_service_err("list what the group gives", e))
+}
+
+/// One page of the people Gauge knows about. Gauge admins only.
+#[uf_product_macros::server]
+pub async fn get_people(
+    /// Name or handle to search for.
+    query: Option<String>,
+    /// The previous page's `next_cursor`.
+    cursor: Option<String>,
+) -> Result<gauge::types::Page<gauge::types::PersonRow>, ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    gauge::service::list_people(
+        query.as_deref(),
+        cursor.as_deref(),
+        &valence_from_ctx(&ctx)?,
+    )
+    .await
+    .map_err(|e| map_service_err("list people", e))
+}
+
+/// What one person or service user can do, and why.
+#[uf_product_macros::server]
+pub async fn get_principal_access(
+    /// The user or service user.
+    principal: gauge::types::PrincipalKey,
+) -> Result<gauge::types::PrincipalAccess, ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    gauge::service::principal_access(&principal, &valence_from_ctx(&ctx)?)
+        .await
+        .map_err(|e| map_service_err("load their access", e))
+}
+
+/// What the signed-in person can do, and why.
+#[uf_product_macros::server]
+pub async fn get_my_access() -> Result<gauge::types::PrincipalAccess, ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    gauge::service::principal_access_self(&valence_from_ctx(&ctx)?)
+        .await
+        .map_err(|e| map_service_err("load your access", e))
+}
+
+/// One page of Gauge's change log. Gauge admins only.
+#[uf_product_macros::server]
+pub async fn get_activity(
+    /// Which changes to list.
+    filter: gauge::types::ActivityFilter,
+    /// The previous page's `next_cursor`.
+    cursor: Option<String>,
+) -> Result<gauge::types::Page<gauge::types::ActivityRow>, ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    gauge::service::list_activity(filter, cursor.as_deref(), &valence_from_ctx(&ctx)?)
+        .await
+        .map_err(|e| map_service_err("load activity", e))
+}
+
+/// The changes to one permission, group or domain, newest first, for its Activity tab.
+///
+/// Gauge admins read Gauge's change log filtered to the record. The record's owners read its
+/// history rows, named here by person and group.
+#[uf_product_macros::server]
+pub async fn get_record_activity(
+    /// The record.
+    record: gauge::types::RecordRef,
+) -> Result<Vec<gauge::types::ActivityRow>, ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    let v = valence_from_ctx(&ctx)?;
+    let admin = gauge::service::actor_is_gauge_admin(&v)
+        .await
+        .map_err(|e| map_service_err("load activity", e))?;
+    if admin {
+        let filter = gauge::types::ActivityFilter {
+            record: Some(record),
+            ..Default::default()
+        };
+        return gauge::service::list_activity(filter, None, &v)
+            .await
+            .map(|page| page.items)
+            .map_err(|e| map_service_err("load activity", e));
+    }
+    crate::server::activity::owner_record_activity(record, &v).await
+}
+
+/// Turn down an access request, with a reason the requester sees.
+#[uf_product_macros::server]
+pub async fn deny_request(
+    /// Request id.
+    id: String,
+    /// Why, in a sentence.
+    reason: String,
+) -> Result<PermissionRequestRowDto, ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    gauge::service::deny_request(&id, &reason, &valence_from_ctx(&ctx)?)
+        .await
+        .map_err(|e| map_service_err("deny the request", e))
+}
+
+/// Withdraw one of the caller's own pending requests.
+#[uf_product_macros::server]
+pub async fn withdraw_request(
+    /// Request id.
+    id: String,
+) -> Result<PermissionRequestRowDto, ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    gauge::service::withdraw_request(&id, &valence_from_ctx(&ctx)?)
+        .await
+        .map_err(|e| map_service_err("withdraw the request", e))
+}
+
+/// Most groups one picker search returns.
+pub const GROUP_SEARCH_LIMIT: usize = 20;
+
+/// Groups whose name or description matches `query`, as picker options, for any signed-in
+/// caller. Gauge lists only the groups the caller may see.
+#[uf_product_macros::server]
+pub async fn search_group_options(
+    /// Typed text. Empty lists the first groups by name.
+    query: String,
+) -> Result<Vec<SearchSourceItem>, ServerFnError> {
+    use gauge::search_sources::PermissionSearchSourceId;
+
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    let q = query.trim();
+    let search = (!q.is_empty()).then(|| q.to_string());
+    let groups = gauge::service::list_groups(&valence_from_ctx(&ctx)?, search)
+        .await
+        .map_err(|e| map_service_err("search groups", e))?;
+    Ok(groups
+        .into_iter()
+        .take(GROUP_SEARCH_LIMIT)
+        .map(|g| SearchSourceItem {
+            source_id: PermissionSearchSourceId::PermissionGroup.as_str().into(),
+            id: g.id,
+            title: g.name,
+            description: Some(g.description).filter(|d| !d.trim().is_empty()),
+            kind: "group".into(),
+            image_url: None,
+        })
+        .collect())
+}
+
+/// One row of the permissions list.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionListRow {
+    /// Permission id.
+    pub id: String,
+    /// The name people read.
+    pub display_name: String,
+    /// The key code checks.
+    pub key: String,
+    /// Description, as Markdown.
+    pub description: String,
+    /// Domain name.
+    pub domain_name: String,
+    /// The owners group's name.
+    pub owned_by: String,
+    /// How many people and service users pass the check. Only for Gauge admins.
+    pub holders: Option<usize>,
+}
+
+/// Every permission the caller can see, with its owners group's name, and for Gauge admins
+/// how many pass its check.
+#[uf_product_macros::server]
+pub async fn list_permission_rows() -> Result<Vec<PermissionListRow>, ServerFnError> {
+    let ctx = higgs::Higgs::from_request().await?;
+    require_session(&ctx)?;
+    let v = valence_from_ctx(&ctx)?;
+    let permissions = gauge::service::list_permissions(&v, None)
+        .await
+        .map_err(|e| map_service_err("list permissions", e))?;
+    let groups: std::collections::HashMap<String, String> = gauge::service::list_groups(&v, None)
+        .await
+        .map_err(|e| map_service_err("list groups", e))?
+        .into_iter()
+        .map(|g| (g.id, g.name))
+        .collect();
+    let admin = gauge::service::actor_is_gauge_admin(&v)
+        .await
+        .map_err(|e| map_service_err("list permissions", e))?;
+    let mut rows = Vec::with_capacity(permissions.len());
+    for p in permissions {
+        let holders = if admin {
+            gauge::service::list_effective_holders(&p.id, &v)
+                .await
+                .ok()
+                .map(|h| h.len())
+        } else {
+            None
+        };
+        rows.push(PermissionListRow {
+            display_name: if p.display_name.trim().is_empty() {
+                p.name.clone()
+            } else {
+                p.display_name.clone()
+            },
+            owned_by: groups.get(&p.owners_group_id).cloned().unwrap_or_default(),
+            id: p.id,
+            key: p.name,
+            description: p.description,
+            domain_name: p.domain_name,
+            holders,
+        });
+    }
+    rows.sort_by(|a, b| {
+        a.display_name
+            .to_lowercase()
+            .cmp(&b.display_name.to_lowercase())
+    });
     Ok(rows)
 }

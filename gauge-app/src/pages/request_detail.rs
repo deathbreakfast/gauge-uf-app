@@ -52,6 +52,7 @@ const fn status_label(status: &PermissionRequestStatusDto) -> &'static str {
         PermissionRequestStatusDto::Pending => "PENDING",
         PermissionRequestStatusDto::Approved => "APPROVED",
         PermissionRequestStatusDto::Denied => "DENIED",
+        PermissionRequestStatusDto::Withdrawn => "WITHDRAWN",
     }
 }
 
