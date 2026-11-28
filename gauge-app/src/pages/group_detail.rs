@@ -214,6 +214,8 @@ pub fn GroupDetailPage() -> impl IntoView {
     let group_id = Memo::new(move |_| params.read().get("id").unwrap_or_default());
     let refresh = RwSignal::new(0u64);
     // Lives above the Transition, so a refetch after a change keeps the open tab.
+    // `?request=1` opens Request access once per visit, not again after each refetch.
+    let auto_opened = StoredValue::new(false);
     let tab = RwSignal::new(TAB_MEMBERS.to_string());
     let _viewer = use_viewer_access();
     let detail = Resource::new(
@@ -240,7 +242,7 @@ pub fn GroupDetailPage() -> impl IntoView {
         <ContentContainer max_width="1100px" data_testid="gauge-group-page">
             <Transition fallback=skeleton>
                 {move || detail.get().map(|result| match result {
-                    Ok(Some(row)) => view! { <GroupLoaded row=row refresh=refresh tab=tab /> }.into_any(),
+                    Ok(Some(row)) => view! { <GroupLoaded row=row refresh=refresh tab=tab auto_opened=auto_opened /> }.into_any(),
                     Ok(None) => {
                         let navigate = navigate.clone();
                         view! {
@@ -283,13 +285,14 @@ fn GroupLoaded(
     row: PermissionGroupDetailDto,
     refresh: RwSignal<u64>,
     tab: RwSignal<String>,
+    auto_opened: StoredValue<bool>,
 ) -> impl IntoView {
     let viewer = use_viewer_access();
     let row = StoredValue::new(row);
     let group_id = row.with_value(|r| r.id.clone());
     let group_name = row.with_value(|r| r.name.clone());
     let is_super = group_id == SUPER_USER_GROUP_ID;
-    let managed_res = Resource::new(
+    let managed_res = crate::pages::shared::local_resource(
         {
             let id = group_id.clone();
             move || (id.clone(), refresh.get())
@@ -313,7 +316,6 @@ fn GroupLoaded(
     let request_open = RwSignal::new(false);
     let query = use_query_map();
     let preselect_for = Signal::derive(move || requested_for_handle(&query.read()));
-    let auto_opened = StoredValue::new(false);
     Effect::new(move |_| {
         if can_request && !auto_opened.get_value() && wants_request_dialog(&query.read_untracked())
         {
@@ -543,7 +545,7 @@ fn MembersTab(
     let row = StoredValue::new(row);
     let remove_open = RwSignal::new(false);
     let remove_target = RwSignal::new(None::<RemoveTarget>);
-    let activity = Resource::new(
+    let activity = crate::pages::shared::local_resource(
         move || row.with_value(|r| r.id.clone()),
         move |id| {
             let name = row.with_value(|r| r.name.clone());
@@ -733,7 +735,7 @@ fn ManagedMembers(members: Vec<PrincipalRefDto>, managed: ManagedGroupDto) -> im
 #[component]
 fn GroupAccessTab(group_id: String) -> impl IntoView {
     let refresh = RwSignal::new(0u32);
-    let access = Resource::new(
+    let access = crate::pages::shared::local_resource(
         move || (group_id.clone(), refresh.get()),
         |(id, _)| get_group_access(id),
     );

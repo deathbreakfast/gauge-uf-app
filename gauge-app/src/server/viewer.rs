@@ -22,10 +22,16 @@ pub struct ViewerAccess {
 }
 
 impl ViewerAccess {
-    /// Whether they may change `group_id`'s members (its owners and Gauge admins).
+    /// Whether they may change `group_id`'s members (its owners and Gauge admins). Super User
+    /// is its owners' alone.
     #[must_use]
     pub fn can_manage_group(&self, group_id: &str) -> bool {
-        self.gauge_admin || self.owned_groups.iter().any(|g| g == group_id)
+        let owns = self.owned_groups.iter().any(|g| g == group_id);
+        if group_id == super::SUPER_USER_GROUP_ID {
+            owns
+        } else {
+            self.gauge_admin || owns
+        }
     }
 
     /// Whether they may change `permission_id`'s allow list (its owners and Gauge admins).
@@ -76,18 +82,20 @@ pub async fn get_viewer_access() -> Result<ViewerAccess, ServerFnError> {
 
 /// The page's viewer access: the one already in context, or a new resource provided as
 /// context so the rest of the page reads the same load.
-pub fn use_viewer_access() -> Resource<Result<ViewerAccess, ServerFnError>> {
-    if let Some(existing) = use_context::<Resource<Result<ViewerAccess, ServerFnError>>>() {
+/// Loads in the browser after hydration (`LocalResource`), so the server renders the
+/// no-access state and the browser starts from the same one.
+pub fn use_viewer_access() -> LocalResource<Result<ViewerAccess, ServerFnError>> {
+    if let Some(existing) = use_context::<LocalResource<Result<ViewerAccess, ServerFnError>>>() {
         return existing;
     }
-    let resource = Resource::new(|| (), |()| get_viewer_access());
+    let resource = LocalResource::new(get_viewer_access);
     provide_context(resource);
     resource
 }
 
 /// The loaded viewer access, or the default (no admin, owns nothing) while it loads or
 /// when it failed.
-pub fn viewer_now(resource: Resource<Result<ViewerAccess, ServerFnError>>) -> ViewerAccess {
+pub fn viewer_now(resource: LocalResource<Result<ViewerAccess, ServerFnError>>) -> ViewerAccess {
     resource.get().and_then(Result::ok).unwrap_or_default()
 }
 
@@ -109,6 +117,7 @@ mod tests {
             ..Default::default()
         };
         assert!(admin.can_manage_group("any"));
+        assert!(!admin.can_manage_group(crate::server::SUPER_USER_GROUP_ID));
     }
 
     #[test]

@@ -105,7 +105,7 @@ pub fn use_group_search(
     query: RwSignal<String>,
     skip: Signal<Option<String>>,
 ) -> Signal<Vec<PickerGroup>> {
-    let answer = Resource::new(
+    let answer = crate::pages::shared::local_resource(
         move || query.get().trim().to_string(),
         |q| async move { search_group_options(q).await },
     );

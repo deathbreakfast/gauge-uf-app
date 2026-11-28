@@ -97,6 +97,8 @@ pub fn PermissionDetailPage() -> impl IntoView {
     let permission_id = Memo::new(move |_| params.read().get("id").unwrap_or_default());
     let refresh = RwSignal::new(0u64);
     // Lives above the Transition, so a refetch after a change keeps the open tab.
+    // `?request=1` opens Request access once per visit, not again after each refetch.
+    let auto_opened = StoredValue::new(false);
     let tab = RwSignal::new(TAB_WHO.to_string());
     let viewer = use_viewer_access();
     let detail = Resource::new(
@@ -109,7 +111,7 @@ pub fn PermissionDetailPage() -> impl IntoView {
             <Transition fallback=PermissionSkeleton>
                 {move || detail.get().map(|result| match result {
                     Ok(Some(row)) => view! {
-                        <PermissionLoaded row=row viewer_ready=Signal::derive(move || viewer.get().is_some()) refresh=refresh tab=tab />
+                        <PermissionLoaded row=row viewer_ready=Signal::derive(move || viewer.get().is_some()) refresh=refresh tab=tab auto_opened=auto_opened />
                     }.into_any(),
                     Ok(None) => view! { <PermissionNotFound /> }.into_any(),
                     Err(err) => view! {
@@ -195,6 +197,7 @@ fn PermissionLoaded(
     viewer_ready: Signal<bool>,
     refresh: RwSignal<u64>,
     tab: RwSignal<String>,
+    auto_opened: StoredValue<bool>,
 ) -> impl IntoView {
     let viewer = use_viewer_access();
     let row = StoredValue::new(row);
@@ -206,7 +209,7 @@ fn PermissionLoaded(
     let is_admin = Signal::derive(move || viewer_now(viewer).gauge_admin);
     let name = row.with_value(display_name);
     let owners_group_id = row.with_value(|r| r.owners_group_id.clone());
-    let owners = Resource::new(
+    let owners = crate::pages::shared::local_resource(
         {
             let g = owners_group_id.clone();
             move || g.clone()
@@ -238,7 +241,6 @@ fn PermissionLoaded(
     let request_open = RwSignal::new(false);
     let query = use_query_map();
     let preselect_for = Signal::derive(move || requested_for_handle(&query.read()));
-    let auto_opened = StoredValue::new(false);
     let can_request = row.with_value(|r| r.can_request_access);
     Effect::new(move |_| {
         if can_request && !auto_opened.get_value() && wants_request_dialog(&query.read_untracked())
@@ -384,7 +386,7 @@ fn give_permission(
     _owns_owner_group: bool,
 ) -> GivePermission {
     let viewer_groups =
-        use_context::<Resource<Result<crate::server::viewer::ViewerAccess, ServerFnError>>>()
+        use_context::<LocalResource<Result<crate::server::viewer::ViewerAccess, ServerFnError>>>()
             .map(viewer_now)
             .unwrap_or_default();
     GivePermission {
@@ -413,7 +415,8 @@ fn Fact(#[prop(into)] label: String, children: Children) -> impl IntoView {
 
 #[component]
 fn HolderCount(permission_id: String) -> impl IntoView {
-    let holders = Resource::new(move || permission_id.clone(), get_effective_holders);
+    let holders =
+        crate::pages::shared::local_resource(move || permission_id.clone(), get_effective_holders);
     view! {
         <Suspense fallback=|| view! { <SkeletonItem width="80px".to_string() /> }>
             {move || holders.get().map(|r| match r {
@@ -432,7 +435,7 @@ fn NotEditorView(
     owners_name: Signal<String>,
     owner_people: Signal<Vec<String>>,
 ) -> impl IntoView {
-    let mine = Resource::new(|| (), |()| get_my_access());
+    let mine = crate::pages::shared::local_resource(|| (), |()| get_my_access());
     let holds = {
         let id = permission_id.clone();
         Signal::derive(move || {
@@ -503,7 +506,7 @@ fn EditorTabs(
     let row = StoredValue::new(row);
     let record = StoredValue::new(record);
     let allow_count = row.with_value(|r| r.allow_list.len());
-    let holders = Resource::new(
+    let holders = crate::pages::shared::local_resource(
         move || (row.with_value(|r| r.id.clone()), refresh.get()),
         |(id, _)| get_effective_holders(id),
     );
@@ -559,7 +562,7 @@ fn text_of(record: &DataRecord, field: &'static str) -> String {
 #[component]
 fn WhoHasAccessTab(
     key: String,
-    holders: Resource<Result<Vec<HolderRow>, ServerFnError>>,
+    holders: LocalResource<Result<Vec<HolderRow>, ServerFnError>>,
     refresh: RwSignal<u64>,
 ) -> impl IntoView {
     let caption =
@@ -624,7 +627,7 @@ fn WhoHasAccessTab(
 #[component]
 fn AllowListTab(
     row: PermissionDetailDto,
-    holders: Resource<Result<Vec<HolderRow>, ServerFnError>>,
+    holders: LocalResource<Result<Vec<HolderRow>, ServerFnError>>,
     refresh: RwSignal<u64>,
     notice: RwSignal<Option<String>>,
 ) -> impl IntoView {
@@ -868,7 +871,7 @@ fn DeletePermissionDialog(open: RwSignal<bool>, row: PermissionDetailDto) -> imp
     let typed = RwSignal::new(String::new());
     let error = RwSignal::new(None::<String>);
     let row = StoredValue::new(row);
-    let holders = Resource::new(
+    let holders = crate::pages::shared::local_resource(
         move || open.get().then(|| row.with_value(|r| r.id.clone())),
         |id| async move {
             match id {

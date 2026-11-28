@@ -124,7 +124,7 @@ pub fn RemoveConfirmDialog(
     /// Runs on the Danger button.
     on_confirm: Callback<()>,
 ) -> impl IntoView {
-    let access = Resource::new(
+    let access = crate::pages::shared::local_resource(
         move || {
             target.get().filter(|_| open.get()).and_then(|t| {
                 matches!(

@@ -47,7 +47,7 @@ pub fn RecordActivity(
 ) -> impl IntoView {
     let record = StoredValue::new(record);
     let refresh = RwSignal::new(0u32);
-    let rows = Resource::new(
+    let rows = crate::pages::shared::local_resource(
         move || refresh.get(),
         move |_| get_record_activity(record.get_value()),
     );

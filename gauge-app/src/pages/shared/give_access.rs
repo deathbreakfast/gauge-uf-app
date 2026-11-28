@@ -333,7 +333,7 @@ pub fn GiveAccessToPersonDialog(
     let query = RwSignal::new(String::new());
     let choice = RwSignal::new(None::<String>);
     let error = RwSignal::new(None::<String>);
-    let options = Resource::new(
+    let options = crate::pages::shared::local_resource(
         move || query.get().trim().to_string(),
         |q| async move {
             if q.chars().count() < 2 {

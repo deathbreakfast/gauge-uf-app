@@ -7,7 +7,8 @@ export type SeedAuthKind =
   | "admin"
   | "requestor"
   | "outsider"
-  | "unverified";
+  | "unverified"
+  | "kenji";
 
 export type SeedFixtures = {
   domain_a_id: string;
@@ -472,6 +473,7 @@ export const PEOPLE = {
   requestor: "Rae Requestor",
   outsider: "Otto Outsider",
   kenji: "Kenji Watanabe",
+  noor: "Noor Haddad",
 } as const;
 
 /** Display name of the service user `admin` owns (`admin-agent`). */

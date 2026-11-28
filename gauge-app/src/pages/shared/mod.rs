@@ -24,3 +24,20 @@ pub mod words;
 
 /// [`denied::DeniedPage`] — the locked page someone sees before a form they can't submit.
 pub mod denied;
+
+/// A browser-only resource from a key and a fetcher, like `Resource::new` but never run or
+/// serialized during server rendering.
+///
+/// Pages server-render only their main record. Everything else (holders, activity, viewer
+/// access) loads here after hydration, so slow reads never hold up the page and the server
+/// and browser always start from the same empty state.
+pub fn local_resource<K, T, Fut>(
+    key: impl Fn() -> K + 'static,
+    fetch: impl Fn(K) -> Fut + 'static,
+) -> leptos::prelude::LocalResource<T>
+where
+    T: 'static,
+    Fut: std::future::Future<Output = T> + 'static,
+{
+    leptos::prelude::LocalResource::new(move || fetch(key()))
+}

@@ -181,6 +181,8 @@ for (const look of LOOKS) {
     });
 
     test(`pw-gauge-super-user-no-service-users-sad [${look}]`, async ({ page }) => {
+      // Only Super User's owners may add to it.
+      await seedAuth(page, "kenji");
       await page.goto("/permission/groups/super_user_group", { waitUntil: "domcontentloaded" });
       await waitForHydrated(page);
       await openMembersDialog(page);

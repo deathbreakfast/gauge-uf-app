@@ -211,27 +211,28 @@ test.describe("e2e.group.detail", () => {
   });
 
   test("e2e.group.detail.super_user_owner_removal_asks_fresh_code", async ({ page }) => {
-    await seedAuth(page, "admin");
+    // Kenji owns Super User; only its owners and Super Users can see who owns it.
+    await seedAuth(page, "kenji");
     await openGroup(page, "super_user_group");
     await expect(page.getByTestId("gauge-group-super-user-warning")).toContainText(
       "Members can do everything in every app",
       { timeout: 60_000 },
     );
     await openTab(page, /Owners/);
-    await rowMenu(page, "gauge-group-owners", PEOPLE.kenji, "Remove as owner");
+    await rowMenu(page, "gauge-group-owners", PEOPLE.noor, "Remove as owner");
     const confirm = page.getByTestId("gauge-group-owner-remove-confirm");
     await expect(confirm).toContainText("Super User changes need a fresh authenticator code.");
     await page.getByTestId("gauge-group-owner-remove-button").click();
     const dialog = stepUpDialog(page);
     // A recent code is on file, but Super User still asks for a fresh one.
     await expect(dialog.getByTestId("step-up-description")).toContainText(
-      `to confirm: Remove ${PEOPLE.kenji} as an owner of Super User.`,
+      `to confirm: Remove ${PEOPLE.noor} as an owner of Super User.`,
       { timeout: 60_000 },
     );
     await expect(dialog.getByTestId("step-up-description")).toContainText(
       "Super User changes need a fresh code, even if you typed one a minute ago.",
     );
-    await dialog.getByTestId("step-up-cancel").getByRole("button").click();
+    await page.keyboard.press("Escape");
   });
 
   test("e2e.group.detail.add_member_with_code", async ({ page }) => {

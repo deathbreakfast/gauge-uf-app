@@ -221,7 +221,8 @@ fn prepare_env() {
 pub const HARNESS_TOTP_SECRET: &str = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
 
 /// The usability fixture: a permission held through a nested group, a group with an owner
-/// who isn't a Gauge admin, and a second Super User owner (`kenji`). Runs while `admin` is
+/// who isn't a Gauge admin, and two Super User owners who aren't Gauge admins (`kenji`, who
+/// signs in as the `kenji` seed, and `noor`). Runs while `admin` is
 /// still Super User. Returns `(release_group_id, release_permission_id)`.
 async fn seed_release_captains(
     admin_ctx: &Valence,
@@ -324,12 +325,13 @@ async fn seed_user(id: &str, email_verified: bool, valence: &Valence) {
 }
 
 /// Display names the person pickers search by, one per seeded user.
-const DISPLAY_NAMES: [(&str, &str); 5] = [
+const DISPLAY_NAMES: [(&str, &str); 6] = [
     ("admin", "Ada Admin"),
     ("requestor", "Rae Requestor"),
     ("outsider", "Otto Outsider"),
     ("unverified", "Uma Unverified"),
     ("kenji", "Kenji Watanabe"),
+    ("noor", "Noor Haddad"),
 ];
 
 /// Give seeded user `id` a profile, since people search finds people by display name.
@@ -542,6 +544,7 @@ pub async fn init_e2e_valence() {
     seed_user("outsider", true, &system).await;
     seed_user("unverified", false, &system).await;
     seed_user("kenji", true, &system).await;
+    seed_user("noor", true, &system).await;
     for (id, display_name) in DISPLAY_NAMES {
         seed_profile(id, display_name, &system).await;
     }
