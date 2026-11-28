@@ -42,7 +42,9 @@ use crate::pages::shared::request_access::{
     requested_for_handle, wants_request_dialog, RequestAccessDialog,
 };
 use crate::pages::shared::resource_cards::GroupResourceAccessCard;
-use crate::pages::shared::words::{first_name, kind_word, plain_name, when_view};
+use crate::pages::shared::words::{
+    first_name, kind_word, plain_name, principal_name_view, service_user_of_row, when_view,
+};
 use crate::pages::step_up::{spawn_with_fresh_totp_to, spawn_with_step_up_to};
 use crate::resource_access::ManagedGroupDto;
 use crate::server::viewer::{use_viewer_access, viewer_now};
@@ -94,7 +96,7 @@ pub fn added_by_label(rows: &[ActivityRow]) -> HashMap<String, (String, String)>
 }
 
 /// Remove one member by kind; `totp_code` is only read for user and service-user members.
-async fn remove_member(
+pub(crate) async fn remove_member(
     kind: PrincipalKind,
     group_id: String,
     principal_id: String,
@@ -127,7 +129,7 @@ async fn add_member(
 
 /// Run a member change: groups and ordinary groups use the sudo window, Super User wants a
 /// fresh code for people.
-fn spawn_member_change<F, Fut>(
+pub(crate) fn spawn_member_change<F, Fut>(
     group_id: &str,
     kind: &PrincipalKind,
     confirm: String,
@@ -642,7 +644,7 @@ fn MembersTab(
                         let kind = text_of(&r, "kind");
                         view! {
                             <Flex vertical=true gap=FlexGap::Size(0)>
-                                <Body1Strong>{member}</Body1Strong>
+                                {principal_name_view(member, service_user_of_row(&r.id))}
                                 <Caption1>{kind}</Caption1>
                             </Flex>
                         }.into_any()

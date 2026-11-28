@@ -1,16 +1,21 @@
-//! Help spotlight tour steps for Permission (`/permission`) routes.
+//! Help spotlight tour steps for Gauge (`/permission`) routes.
 //!
 //! Inventory is registered via [`uf_help_macros::help_spotlight_step`]. Call
 //! [`ensure_help_steps_linked`] from the host or [`crate::PermissionRoutes`] so
 //! `inventory` submissions survive linking.
 
+mod activity;
 mod domain_create;
+mod domains_index;
 mod group_create;
 mod group_detail;
 mod groups_index;
+mod overview;
+mod people_index;
 mod permission_create;
 mod permission_detail;
 mod permissions_index;
+mod person_detail;
 mod request_detail;
 mod requests_index;
 
@@ -40,7 +45,7 @@ pub(crate) fn help_stack(
     }
 }
 
-/// Force-link Permission Help spotlight inventory into the host binary.
+/// Force-link Gauge's Help spotlight inventory into the host binary.
 ///
 /// Empty body; `#[help_spotlight_step]` submissions in child modules are retained
 /// when this crate is linked and this function is called from routes or the host.

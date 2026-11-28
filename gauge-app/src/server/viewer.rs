@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 /// The signed-in person's standing in Gauge.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ViewerAccess {
+    /// Their user id, so a page can tell their own records apart.
+    pub user_id: String,
     /// They hold `GaugeAdmin`.
     pub gauge_admin: bool,
     /// Ids of the groups they own, directly or through an owner group.
@@ -73,6 +75,7 @@ pub async fn get_viewer_access() -> Result<ViewerAccess, ServerFnError> {
         .filter(|r| r.status == PermissionRequestStatusDto::Pending)
         .count();
     Ok(ViewerAccess {
+        user_id: ctx.session_user_id().cloned().unwrap_or_default(),
         gauge_admin,
         owned_groups: owned(RecordKind::Group),
         owned_permissions: owned(RecordKind::Permission),
@@ -95,7 +98,14 @@ pub fn use_viewer_access() -> LocalResource<Result<ViewerAccess, ServerFnError>>
 
 /// The loaded viewer access, or the default (no admin, owns nothing) while it loads or
 /// when it failed.
+///
+/// The server never loads it, so server rendering gets the default without reading the
+/// resource; a local resource read outside a `Suspense` there panics. The browser starts
+/// from the same default.
 pub fn viewer_now(resource: LocalResource<Result<ViewerAccess, ServerFnError>>) -> ViewerAccess {
+    if cfg!(feature = "ssr") {
+        return ViewerAccess::default();
+    }
     resource.get().and_then(Result::ok).unwrap_or_default()
 }
 
