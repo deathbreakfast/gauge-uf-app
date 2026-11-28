@@ -98,7 +98,14 @@ pub fn use_viewer_access() -> LocalResource<Result<ViewerAccess, ServerFnError>>
 
 /// The loaded viewer access, or the default (no admin, owns nothing) while it loads or
 /// when it failed.
+///
+/// The server never loads it, so server rendering gets the default without reading the
+/// resource; a local resource read outside a `Suspense` there panics. The browser starts
+/// from the same default.
 pub fn viewer_now(resource: LocalResource<Result<ViewerAccess, ServerFnError>>) -> ViewerAccess {
+    if cfg!(feature = "ssr") {
+        return ViewerAccess::default();
+    }
     resource.get().and_then(Result::ok).unwrap_or_default()
 }
 

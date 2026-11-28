@@ -186,7 +186,8 @@ fn WaitingForYou(refresh: RwSignal<u32>, failed: RwSignal<Option<String>>) -> im
             failed.set(Some(e.to_string()));
         }
     });
-    let count = move || match rows.get() {
+    // Local resources only load in the browser; don't read one while server rendering.
+    let count = move || match (!cfg!(feature = "ssr")).then(|| rows.get()).flatten() {
         Some(Ok(list)) if !list.is_empty() => format!("Waiting for you ({})", list.len()),
         _ => "Waiting for you".to_string(),
     };

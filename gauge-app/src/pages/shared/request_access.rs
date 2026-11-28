@@ -191,10 +191,12 @@ pub fn RequestAccessDialog(
             }
         },
     );
+    // The dialog's local resources load only once it opens; nothing reads them while closed,
+    // so server rendering never touches them.
+    let facts_now = move || open.get().then(|| facts.get()).flatten().flatten();
+    let already_now = move || open.get().then(|| already.get()).flatten().flatten();
     let reviewers = Signal::derive(move || {
-        facts
-            .get()
-            .flatten()
+        facts_now()
             .map(|f| f.reviewers)
             .filter(|r| !r.is_empty())
             .unwrap_or_else(|| "its owners".to_string())
@@ -260,12 +262,12 @@ pub fn RequestAccessDialog(
             <DialogSurface>
                 <DialogBody>
                     <DialogTitle>
-                        {move || ask_title(&title_kind.get_value(), &facts.get().flatten().map(|f| f.name).unwrap_or_default())}
+                        {move || ask_title(&title_kind.get_value(), &facts_now().map(|f| f.name).unwrap_or_default())}
                     </DialogTitle>
                     <DialogContent>
                         {move || {
                             if let Some(row) = sent.get() {
-                                let target = facts.get().flatten().map(|f| f.name).unwrap_or_default();
+                                let target = facts_now().map(|f| f.name).unwrap_or_default();
                                 return view! {
                                     <div data-testid="gauge-request-sent">
                                         <MessageBar intent=MessageBarIntent::Success layout=MessageBarLayout::Multiline>
@@ -278,7 +280,7 @@ pub fn RequestAccessDialog(
                                     </div>
                                 }.into_any();
                             }
-                            if let Some(row) = already.get().flatten() {
+                            if let Some(row) = already_now() {
                                 return view! {
                                     <div data-testid="gauge-request-already">
                                         <MessageBar intent=MessageBarIntent::Info layout=MessageBarLayout::Multiline>
@@ -296,10 +298,10 @@ pub fn RequestAccessDialog(
                                         <Flex gap=FlexGap::Large wrap=FlexWrap::Wrap>
                                             <Flex vertical=true gap=FlexGap::Size(0)>
                                                 <Caption1Strong>"Members get"</Caption1Strong>
-                                                <Body1>{move || match facts.get() {
-                                                    Some(Some(f)) if !f.members_get.is_empty() => f.members_get.join(", "),
-                                                    Some(Some(_)) => "No permissions yet".to_string(),
-                                                    _ => String::new(),
+                                                <Body1>{move || match facts_now() {
+                                                    Some(f) if !f.members_get.is_empty() => f.members_get.join(", "),
+                                                    Some(_) => "No permissions yet".to_string(),
+                                                    None => String::new(),
                                                 }}</Body1>
                                             </Flex>
                                             <Flex vertical=true gap=FlexGap::Size(0)>
@@ -345,7 +347,7 @@ pub fn RequestAccessDialog(
                     </DialogContent>
                     <DialogActions>
                         {move || {
-                            let pending_id = sent.get().map(|r| r.id).or_else(|| already.get().flatten().map(|r| r.id));
+                            let pending_id = sent.get().map(|r| r.id).or_else(|| already_now().map(|r| r.id));
                             match pending_id {
                                 Some(id) => view! {
                                     <Button appearance=ButtonAppearance::Secondary on_click=Callback::new(move |_| open_request.run(id.clone()))>

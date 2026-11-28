@@ -358,7 +358,7 @@ pub fn DomainDetailPage() -> impl IntoView {
         <Dialog open=confirm_delete_open>
             <DialogSurface>
                 <DialogBody>
-                    {move || match blocking.get() {
+                    {move || match confirm_delete_open.get().then(|| blocking.get()).flatten() {
                         Some(Ok(perms)) if !perms.is_empty() => {
                             let name = shown_name.get();
                             let n = perms.len();
