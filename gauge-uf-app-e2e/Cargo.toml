@@ -28,6 +28,8 @@ lepton = { workspace = true, optional = true }
 # SSR only: registers the `lepton_service_users` search source for the person pickers.
 lepton-app = { workspace = true, default-features = false, optional = true }
 lepton-auth = { workspace = true, default-features = false, optional = true }
+# The step-up code dialog, which real hosts get from lepton-shell's avatar menu.
+lepton-auth-ui = { workspace = true, default-features = false }
 lepton-identity = { workspace = true, optional = true }
 # SSR only: the TOTP factor model, to enroll the lab admin's authenticator.
 lepton-host-adapter = { workspace = true, default-features = false, optional = true }
@@ -53,6 +55,7 @@ wasm-bindgen = { workspace = true, optional = true }
 default = []
 hydrate = [
     "leptos/hydrate",
+    "lepton-auth-ui/hydrate",
     "gauge-app/hydrate",
     "uf-product/hydrate",
     "uf-integrations/hydrate",
@@ -65,6 +68,7 @@ hydrate = [
 ]
 ssr = [
     "leptos/ssr",
+    "lepton-auth-ui/ssr",
     "leptos_meta/ssr",
     "leptos_router/ssr",
     "gauge-app/ssr",

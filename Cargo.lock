@@ -1443,6 +1443,7 @@ dependencies = [
  "lepton",
  "lepton-app",
  "lepton-auth",
+ "lepton-auth-ui",
  "lepton-host-adapter",
  "lepton-identity",
  "leptos",

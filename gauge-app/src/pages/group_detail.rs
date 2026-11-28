@@ -216,6 +216,9 @@ pub fn GroupDetailPage() -> impl IntoView {
     // Lives above the Transition, so a refetch after a change keeps the open tab.
     // `?request=1` opens Request access once per visit, not again after each refetch.
     let auto_opened = StoredValue::new(false);
+    // The success bar (and its Undo) outlives the refetch a change triggers.
+    let notice = RwSignal::new(None::<Notice>);
+    let notice_seq = RwSignal::new(0u64);
     let tab = RwSignal::new(TAB_MEMBERS.to_string());
     let _viewer = use_viewer_access();
     let detail = Resource::new(
@@ -242,7 +245,7 @@ pub fn GroupDetailPage() -> impl IntoView {
         <ContentContainer max_width="1100px" data_testid="gauge-group-page">
             <Transition fallback=skeleton>
                 {move || detail.get().map(|result| match result {
-                    Ok(Some(row)) => view! { <GroupLoaded row=row refresh=refresh tab=tab auto_opened=auto_opened /> }.into_any(),
+                    Ok(Some(row)) => view! { <GroupLoaded row=row refresh=refresh tab=tab auto_opened=auto_opened notice=notice notice_seq=notice_seq /> }.into_any(),
                     Ok(None) => {
                         let navigate = navigate.clone();
                         view! {
@@ -286,6 +289,8 @@ fn GroupLoaded(
     refresh: RwSignal<u64>,
     tab: RwSignal<String>,
     auto_opened: StoredValue<bool>,
+    notice: RwSignal<Option<Notice>>,
+    notice_seq: RwSignal<u64>,
 ) -> impl IntoView {
     let viewer = use_viewer_access();
     let row = StoredValue::new(row);
@@ -307,8 +312,6 @@ fn GroupLoaded(
     let is_admin = Signal::derive(move || viewer_now(viewer).gauge_admin);
     let can_request = row.with_value(|r| r.can_request_access);
 
-    let notice = RwSignal::new(None::<Notice>);
-    let notice_seq = RwSignal::new(0u64);
     let error = RwSignal::new(None::<String>);
     let add_open = RwSignal::new(false);
     let edit_open = RwSignal::new(false);

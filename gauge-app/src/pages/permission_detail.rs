@@ -99,6 +99,8 @@ pub fn PermissionDetailPage() -> impl IntoView {
     // Lives above the Transition, so a refetch after a change keeps the open tab.
     // `?request=1` opens Request access once per visit, not again after each refetch.
     let auto_opened = StoredValue::new(false);
+    // The success bar outlives the refetch a change triggers.
+    let notice = RwSignal::new(None::<String>);
     let tab = RwSignal::new(TAB_WHO.to_string());
     let viewer = use_viewer_access();
     let detail = Resource::new(
@@ -111,7 +113,7 @@ pub fn PermissionDetailPage() -> impl IntoView {
             <Transition fallback=PermissionSkeleton>
                 {move || detail.get().map(|result| match result {
                     Ok(Some(row)) => view! {
-                        <PermissionLoaded row=row viewer_ready=Signal::derive(move || viewer.get().is_some()) refresh=refresh tab=tab auto_opened=auto_opened />
+                        <PermissionLoaded row=row viewer_ready=Signal::derive(move || viewer.get().is_some()) refresh=refresh tab=tab auto_opened=auto_opened notice=notice />
                     }.into_any(),
                     Ok(None) => view! { <PermissionNotFound /> }.into_any(),
                     Err(err) => view! {
@@ -198,6 +200,7 @@ fn PermissionLoaded(
     refresh: RwSignal<u64>,
     tab: RwSignal<String>,
     auto_opened: StoredValue<bool>,
+    notice: RwSignal<Option<String>>,
 ) -> impl IntoView {
     let viewer = use_viewer_access();
     let row = StoredValue::new(row);
@@ -250,7 +253,6 @@ fn PermissionLoaded(
         }
     });
 
-    let notice = RwSignal::new(None::<String>);
     let give_open = RwSignal::new(false);
     let edit_open = RwSignal::new(false);
     let delete_open = RwSignal::new(false);
