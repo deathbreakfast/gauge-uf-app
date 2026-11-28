@@ -161,3 +161,17 @@ orbital-discussion = { git = "https://github.com/unified-field-dev/orbital", bra
 orbital-history = { git = "https://github.com/unified-field-dev/orbital", branch = "main" }
 orbital-markdown = { git = "https://github.com/unified-field-dev/orbital", branch = "main" }
 orbital-style = { git = "https://github.com/unified-field-dev/orbital", branch = "main" }
+
+# Resource access (Gauge roles and managed groups, uf_product::access) is on the
+# deathbreakfast forks' main ahead of unified-field-dev. Drop these once it lands there.
+[patch."https://github.com/unified-field-dev/gauge"]
+gauge = { git = "https://github.com/deathbreakfast/gauge", branch = "main" }
+
+[patch."https://github.com/unified-field-dev/unified-field-product"]
+uf-appearance = { git = "https://github.com/deathbreakfast/unified-field-product", branch = "main" }
+uf-help = { git = "https://github.com/deathbreakfast/unified-field-product", branch = "main" }
+uf-help-macros = { git = "https://github.com/deathbreakfast/unified-field-product", branch = "main" }
+uf-integrations = { git = "https://github.com/deathbreakfast/unified-field-product", branch = "main" }
+uf-product = { git = "https://github.com/deathbreakfast/unified-field-product", branch = "main" }
+uf-product-macros = { git = "https://github.com/deathbreakfast/unified-field-product", branch = "main" }
+uf-search-core = { git = "https://github.com/deathbreakfast/unified-field-product", branch = "main" }

@@ -1,4 +1,5 @@
-//! Host composition: wire Gauge `actor_can` into uf-product permission gates.
+//! Host composition: wire Gauge `actor_can` into uf-product permission gates, and Gauge
+//! resource bundles into uf-product's shared Access views.
 
 #[cfg(feature = "ssr")]
 use std::sync::Arc;
@@ -30,3 +31,16 @@ impl uf_product::permissions::PermissionBackend for GaugePermissionBackend {
 pub fn wire_gauge_permissions() {
     uf_product::permissions::provide_permission_backend(Arc::new(GaugePermissionBackend));
 }
+
+#[cfg(feature = "ssr")]
+pub use kinds::{register_resource_kind, registered_resource_kind, ResourceKindEntry};
+#[cfg(feature = "ssr")]
+pub use resource_access::GaugeResourceAccessBackend;
+
+#[cfg(feature = "ssr")]
+mod kinds;
+#[cfg(feature = "ssr")]
+mod resource_access;
+
+#[cfg(all(test, feature = "ssr"))]
+mod tests;

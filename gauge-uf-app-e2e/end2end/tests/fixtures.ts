@@ -22,6 +22,14 @@ export type SeedFixtures = {
   service_user_handle: string;
   /** Active service user owned by `admin`. */
   foreign_service_user_handle: string;
+  /** Domain of the seeded Chronon job's resource bundle. */
+  resource_domain_id: string;
+  /** Active Polaron team group with Can edit on the job. */
+  team_group_id: string;
+  /** Archived Polaron team group with Can run on the job. */
+  archived_team_group_id: string;
+  /** Pending request from `requestor` for Can view on the job. */
+  resource_request_id: string;
 };
 
 /** All Permission Help inventory keys — seed as seen so non-tour specs stay quiet. */

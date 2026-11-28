@@ -9,3 +9,11 @@ help_spotlight.spec.ts › help-spotlight › help-spotlight-create-group-green
 help_spotlight.spec.ts › help-spotlight › help-spotlight-group-detail-green
 help_spotlight.spec.ts › help-spotlight › help-spotlight-requests-index-green
 help_spotlight.spec.ts › help-spotlight › help-spotlight-request-detail-green
+resource_access.spec.ts › e2e.rag.groups › e2e.rag.groups.teams_tab
+resource_access.spec.ts › e2e.rag.group › e2e.rag.group.team_page
+resource_access.spec.ts › e2e.rag.group › e2e.rag.group.archived_team
+resource_access.spec.ts › e2e.rag.group › e2e.rag.group.plain_group_has_no_access
+resource_access.spec.ts › e2e.rag.domain › e2e.rag.domain.resource_card
+resource_access.spec.ts › e2e.rag.domain › e2e.rag.domain.taxonomy_domain_has_no_card
+resource_access.spec.ts › e2e.rag.requests › e2e.rag.requests.resource_label
+resource_access.spec.ts › e2e.rag.requests › e2e.rag.requests.reviewer_sees_resource_label
