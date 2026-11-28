@@ -43,14 +43,6 @@ test.describe("help-spotlight", () => {
     await expect(page.locator('[data-testid="spotlight-footer"]:visible')).toHaveCount(0);
   });
 
-  test("help-spotlight-overview-green", async ({ page }) => {
-    await seedAuth(page, "admin", false, { help_tour: true });
-    await page.goto("/permission", { waitUntil: "domcontentloaded" });
-    await waitForHydrated(page);
-    await expect(page.getByTestId("help-step-overview-intro")).toBeVisible({ timeout: 60_000 });
-    await completeVisibleTour(page);
-  });
-
   test("help-spotlight-people-green", async ({ page }) => {
     await seedAuth(page, "admin", false, { help_tour: true });
     await page.goto("/permission/people", { waitUntil: "domcontentloaded" });
@@ -80,6 +72,16 @@ test.describe("help-spotlight", () => {
     await page.reload({ waitUntil: "load" });
     await waitForHydrated(page);
     await expect(page.getByTestId("help-step-permission-intro")).toHaveCount(0);
+  });
+
+  // After the Permissions tour: uf-help also plays /permission/permissions steps on bare
+  // /permission, so this tour marks them seen too.
+  test("help-spotlight-overview-green", async ({ page }) => {
+    await seedAuth(page, "admin", false, { help_tour: true });
+    await page.goto("/permission", { waitUntil: "domcontentloaded" });
+    await waitForHydrated(page);
+    await expect(page.getByTestId("help-step-overview-intro")).toBeVisible({ timeout: 60_000 });
+    await completeVisibleTour(page);
   });
 
   test("help-spotlight-create-permission-green", async ({ page }) => {

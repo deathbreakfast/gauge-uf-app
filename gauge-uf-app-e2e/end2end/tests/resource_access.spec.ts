@@ -158,8 +158,11 @@ test.describe("e2e.rag.requests", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    const summary = page.locator("#gauge-request-detail-summary");
-    await expect(summary.getByText(`Target: ${JOB} · Can view`)).toBeVisible({ timeout: 60_000 });
+    // The title names what the request asks for ("… asks for Chronon job billing-rollup · Can view").
+    const header = page.locator("#gauge-request-detail-header");
+    await expect(header.getByRole("heading", { name: new RegExp(`asks for ${JOB} · Can view$`) })).toBeVisible({
+      timeout: 60_000,
+    });
     const links = page.getByTestId("gauge-request-resource");
     await expect(links.getByRole("link", { name: "Open in Chronon" })).toHaveAttribute(
       "href",

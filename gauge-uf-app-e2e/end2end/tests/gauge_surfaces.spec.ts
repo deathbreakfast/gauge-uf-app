@@ -19,7 +19,7 @@ test.describe("gauge.overview", () => {
     await seedAuth(page, "requestor");
     await page.goto("/permission", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
-    await expect(page.getByTestId("gauge-overview-access")).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator("#gauge-overview-access")).toBeVisible({ timeout: 60_000 });
     await expect(page.getByTestId("nav-overview")).toBeAttached();
     await expect(page.getByTestId("nav-requests")).toBeAttached();
     await expect(page.getByTestId("nav-people")).toHaveCount(0);
