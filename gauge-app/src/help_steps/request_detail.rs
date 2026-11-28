@@ -18,17 +18,9 @@ use super::help_stack;
 pub fn RequestDetailIntroHelp() -> impl IntoView {
     help_stack(
         "help-step-request-detail-intro",
-        "This page is one access request. Read before you decide.",
-        Some(
-            "If you only submitted the ask, you are here to read status, not to approve yourself.",
-        ),
-        &[
-            "Target: permission or group asked for",
-            "Requestor: who asked",
-            "Status: pending, approved, or denied",
-            "Created/Updated: when it changed",
-            "Reason: why they asked",
-        ],
+        "Members get is what approving gives; has now is what they already hold.",
+        Some("A request for a service user names it and its owner under For."),
+        &[],
     )
 }
 
@@ -45,8 +37,8 @@ pub fn RequestDetailIntroHelp() -> impl IntoView {
 pub fn RequestDetailApproveHelp() -> impl IntoView {
     help_stack(
         "help-step-request-detail-approve",
-        "Approve grants the ask: the person gets the key or joins the group.",
-        Some("The button shows only when you can review and the request is still pending. After approve, status updates on this page."),
+        "Approve gives them what Members get right away, after your authenticator code.",
+        Some("They get a notification, and the page keeps who approved it and when."),
         &[],
     )
 }
@@ -64,8 +56,8 @@ pub fn RequestDetailApproveHelp() -> impl IntoView {
 pub fn RequestDetailDenyHelp() -> impl IntoView {
     help_stack(
         "help-step-request-detail-deny",
-        "Deny keeps access unchanged and records the choice.",
-        Some("Use it when the ask should not be granted. Same visibility rules as Approve: only when you can review a pending request."),
+        "Deny asks for a reason, and the requester sees it in the notification and on this page.",
+        Some("Say what would change your answer, so they know whether to ask again."),
         &[],
     )
 }

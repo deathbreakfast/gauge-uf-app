@@ -1,4 +1,4 @@
-//! Shared UI pieces used across multiple Permission app pages.
+//! Shared UI pieces used across Gauge pages.
 
 /// [`give_access::GiveAccessDialog`] — give a permission to a person (with the group suggestion), or access to a person.
 pub mod give_access;
@@ -18,6 +18,9 @@ pub mod record_activity;
 
 /// [`remove_confirm::RemoveConfirmDialog`] — what someone loses and keeps, before the code dialog.
 pub mod remove_confirm;
+
+/// [`reviewers::reviewers_for`] — who reviews each request in a list.
+pub mod reviewers;
 
 /// [`words`] — access paths, kinds and times in words.
 pub mod words;

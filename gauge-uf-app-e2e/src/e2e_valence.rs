@@ -46,6 +46,12 @@ pub struct FixtureIds {
     pub service_user_handle: String,
     /// Active service user owned by `admin`, which `requestor` may not request for.
     pub foreign_service_user_handle: String,
+    /// Id of [`Self::service_user_handle`].
+    pub service_user_id: String,
+    /// Id of the paused service user owned by `requestor`.
+    pub paused_service_user_id: String,
+    /// Id of [`Self::foreign_service_user_handle`].
+    pub foreign_service_user_id: String,
     /// Resource bundle, team groups and resource request.
     pub resource: crate::resource_access_seed::ResourceFixtures,
     /// "Release Captains": owned by `admin` and `outsider` (who isn't a Gauge admin); members
@@ -289,6 +295,28 @@ async fn seed_release_captains(
     Ok((captains_id, permission_id))
 }
 
+/// "Release bots": holds Approve releases, with `requestor`'s service user as its member, so
+/// the service user page has a permission that comes through a group. Runs while `admin` is
+/// still Super User.
+async fn seed_release_bots(
+    admin_ctx: &Valence,
+    release_permission_id: &str,
+    service_user_id: &str,
+) -> anyhow::Result<()> {
+    let bots = service::create_group(
+        PermissionGroupCreateInput {
+            name: "Release bots".into(),
+            description: "Service users that post release timings.".into(),
+        },
+        admin_ctx,
+    )
+    .await?;
+    let bots_id = record_pk_id(bots.id());
+    service::grant_permission_to_group(release_permission_id, &bots_id, admin_ctx).await?;
+    let service_user = lepton_identity::service_users::ServiceUserId::parse(service_user_id)?;
+    service::add_group_member_service_user(&bots_id, &service_user, admin_ctx).await
+}
+
 /// Put Release Captains back as specs expect it: `requestor` a member, `outsider` an owner.
 pub async fn reset_release_captains(admin_ctx: &Valence, captains_id: &str) -> anyhow::Result<()> {
     service::add_group_member_user(captains_id, "requestor", admin_ctx).await?;
@@ -412,6 +440,11 @@ async fn seed_service_users(system: &Valence) {
     for (owner_ctx, handle, display_name) in [
         (&requestor_ctx, REQUESTOR_SERVICE_USER, "Requestor's agent"),
         (&admin_ctx, ADMIN_SERVICE_USER, "Admin's agent"),
+        (
+            &requestor_ctx,
+            REQUESTOR_PAUSED_SERVICE_USER,
+            "Paused agent",
+        ),
     ] {
         create_service_user(
             owner_ctx,
@@ -424,9 +457,32 @@ async fn seed_service_users(system: &Valence) {
         .await
         .unwrap_or_else(|e| panic!("create service user {handle}: {e}"));
     }
+    let paused = service_user_id(&requestor_ctx, REQUESTOR_PAUSED_SERVICE_USER)
+        .await
+        .expect("paused service user id");
+    lepton_auth::service_users::suspend_service_user(
+        &requestor_ctx,
+        &lepton_identity::service_users::ServiceUserId::parse(&paused)
+            .expect("paused service user id parses"),
+    )
+    .await
+    .expect("pause the paused service user");
     service::remove_group_member_user(SERVICE_USER_CREATORS_GROUP_ID, "requestor", &admin_ctx)
         .await
         .expect("requestor leaves service user creators");
+}
+
+/// Handle of the paused (suspended) service user `requestor` owns.
+const REQUESTOR_PAUSED_SERVICE_USER: &str = "requestor-paused";
+
+/// Id of the service user `owner` owns with `handle`.
+async fn service_user_id(owner: &Valence, handle: &str) -> anyhow::Result<String> {
+    lepton_auth::service_users::list_my_service_users(owner)
+        .await?
+        .iter()
+        .find(|su| su.handle() == handle)
+        .map(|su| record_pk_id(su.id()))
+        .ok_or_else(|| anyhow::anyhow!("service user {handle} not found"))
 }
 
 async fn seed_super_user_with_member(system: &Valence, member_user_id: &str) {
@@ -613,6 +669,26 @@ pub async fn init_e2e_valence() {
             .expect("seed release captains");
     fixtures.release_group_id = release_group_id;
     fixtures.release_permission_id = release_permission_id;
+    let requestor_ctx = system.with_actor(Actor::User {
+        user_id: "requestor".to_string(),
+    });
+    fixtures.service_user_id = service_user_id(&requestor_ctx, REQUESTOR_SERVICE_USER)
+        .await
+        .expect("service user id");
+    fixtures.paused_service_user_id =
+        service_user_id(&requestor_ctx, REQUESTOR_PAUSED_SERVICE_USER)
+            .await
+            .expect("paused service user id");
+    fixtures.foreign_service_user_id = service_user_id(&admin_ctx, ADMIN_SERVICE_USER)
+        .await
+        .expect("foreign service user id");
+    seed_release_bots(
+        &admin_ctx,
+        &fixtures.release_permission_id,
+        &fixtures.service_user_id,
+    )
+    .await
+    .expect("seed release bots");
 
     demote_admin_from_super_user(&system).await;
     enroll_admin_authenticator(&system).await;
@@ -741,6 +817,9 @@ async fn bootstrap_fixtures(system: &Valence, admin_ctx: &Valence) -> anyhow::Re
         child_group_id: record_pk_id(child.id()),
         service_user_handle: REQUESTOR_SERVICE_USER.into(),
         foreign_service_user_handle: ADMIN_SERVICE_USER.into(),
+        service_user_id: String::new(),
+        paused_service_user_id: String::new(),
+        foreign_service_user_id: String::new(),
         resource: Default::default(),
         release_group_id: String::new(),
         release_permission_id: String::new(),

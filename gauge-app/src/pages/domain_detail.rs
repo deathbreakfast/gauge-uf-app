@@ -3,21 +3,44 @@ use leptos::prelude::*;
 use leptos::task::spawn_local_scoped;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use leptos_router::NavigateOptions;
+use uf_product::components::EmptyStateCallToAction;
 use uf_product::components::{Body1, Caption1, Card, EmptyState, SkeletonItemSize};
 use uf_product::components::{ContentContainer, SpacingSize, Title3};
 use uf_product::primitives::{
-    Button, ButtonAppearance, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface,
-    DialogTitle, Field, Flex, FlexAlign, FlexGap, FlexJustify, Input, MarkdownEditor, Menu,
-    MenuItem, MenuTrigger, MessageBar, MessageBarIntent, SkeletonItem,
+    Breadcrumb, BreadcrumbButton, BreadcrumbDivider, BreadcrumbItem, Button, ButtonAppearance,
+    Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Field, Flex,
+    FlexAlign, FlexGap, FlexJustify, Input, MarkdownEditor, Menu, MenuItem, MenuTrigger,
+    MessageBar, MessageBarIntent, SkeletonItem, Table, TableBody, TableCell, TableHeader,
+    TableHeaderCell, TableRow,
 };
 
+use crate::components::error_bar::ErrorBar;
 use crate::pages::principal_pick::{act_on_pick, to_picked, PickTarget};
 use crate::pages::shared::resource_cards::ResourceBundleCard;
 use crate::pages::step_up::spawn_with_step_up;
+use crate::server::surfaces::{domain_display_name, list_domain_permissions};
 use crate::server::{
     add_domain_owner_user, delete_domain, get_domain, remove_domain_owner_user, update_domain,
     UpdateDomainInput,
 };
+
+/// Domains › {current}.
+#[component]
+fn DomainCrumbs(#[prop(into)] current: String) -> impl IntoView {
+    view! {
+        <div data-testid="gauge-domain-crumbs">
+            <Breadcrumb>
+                <BreadcrumbItem>
+                    <BreadcrumbButton href="/permission/domains".to_string()>"Domains"</BreadcrumbButton>
+                </BreadcrumbItem>
+                <BreadcrumbDivider />
+                <BreadcrumbItem>
+                    <BreadcrumbButton current=true>{current}</BreadcrumbButton>
+                </BreadcrumbItem>
+            </Breadcrumb>
+        </div>
+    }
+}
 
 /// Domain detail/edit page: name/description, owners picker, and delete.
 #[component]
@@ -42,6 +65,24 @@ pub fn DomainDetailPage() -> impl IntoView {
     let confirm_remove_owner_open = RwSignal::new(false);
     let pending_remove_owner = RwSignal::new(None::<(String, String)>);
     let confirm_delete_open = RwSignal::new(false);
+    // The permissions still in the domain, read when Delete opens; any left block the delete.
+    let blocking = crate::pages::shared::local_resource(
+        move || confirm_delete_open.get().then(|| domain_id.get()),
+        |id| async move {
+            match id {
+                Some(id) => list_domain_permissions(id).await,
+                None => Ok(Vec::new()),
+            }
+        },
+    );
+    let shown_name = Memo::new(move |_| {
+        detail
+            .get()
+            .and_then(Result::ok)
+            .flatten()
+            .map(|d| domain_display_name(&d.name))
+            .unwrap_or_default()
+    });
 
     Effect::new(move |_| {
         if let Some(Ok(Some(row))) = detail.get() {
@@ -101,13 +142,14 @@ pub fn DomainDetailPage() -> impl IntoView {
                         Ok(Some(row)) => {
                             let owner_users = RwSignal::new(row.owner_users.clone());
                             let resource_scoped = row.resource_scoped;
+                            let title = domain_display_name(&row.name);
                             view! {
                                 <Flex vertical=true gap=FlexGap::Medium>
+                                    <DomainCrumbs current=title.clone() />
                                     <div id="gauge-domain-detail-header">
                                     <Card>
                                         <Flex vertical=true gap=FlexGap::Small padding=SpacingSize::Size200.inset()>
-                                            <Title3>"Domain Detail"</Title3>
-                                            <Caption1>{format!("ID: {}", row.id.clone())}</Caption1>
+                                            <Title3>{title}</Title3>
                                             <Show when=move || resource_scoped>
                                                 <MessageBar intent=MessageBarIntent::Info>
                                                     "This domain is resource-scoped plumbing. Rename, delete, and owner changes are blocked."
@@ -242,14 +284,27 @@ pub fn DomainDetailPage() -> impl IntoView {
                             }.into_any()
                         }
                         Ok(None) => view! {
-                            <Card>
-                                <Flex vertical=true gap=FlexGap::Small padding=SpacingSize::Size200.inset()>
-                                    <Title3>"Domain not found"</Title3>
+                            <div data-testid="gauge-domain-not-found">
+                                <Flex vertical=true gap=FlexGap::Medium>
+                                    <DomainCrumbs current="Not found" />
+                                    <EmptyState
+                                        message="Domain not found"
+                                        description="It may have been deleted, or the link has a typo."
+                                    >
+                                        <EmptyStateCallToAction slot:call_to_action>
+                                            <Button on_click=Callback::new(move |_| navigate_store.with_value(|nav| nav("/permission/domains", NavigateOptions::default())))>
+                                                "Back to Domains"
+                                            </Button>
+                                        </EmptyStateCallToAction>
+                                    </EmptyState>
                                 </Flex>
-                            </Card>
+                            </div>
                         }.into_any(),
                         Err(err) => view! {
-                            <MessageBar intent=MessageBarIntent::Error>{err.to_string()}</MessageBar>
+                            <Flex vertical=true gap=FlexGap::Medium>
+                                <DomainCrumbs current="Domain" />
+                                <ErrorBar error=err.to_string() what="this domain" on_retry=Callback::new(move |()| refresh.update(|n| *n += 1)) />
+                            </Flex>
                         }.into_any(),
                     })
                 }}
@@ -303,34 +358,80 @@ pub fn DomainDetailPage() -> impl IntoView {
         <Dialog open=confirm_delete_open>
             <DialogSurface>
                 <DialogBody>
-                    <DialogTitle>"Delete domain?"</DialogTitle>
-                    <DialogContent>"This removes the taxonomy domain. Permissions that still reference it may block delete."</DialogContent>
-                    <DialogActions>
-                        <Button
-                            appearance=ButtonAppearance::Secondary
-                            on_click=Callback::new(move |_| confirm_delete_open.set(false))
-                        >
-                            "Cancel"
-                        </Button>
-                        <Button
-                            appearance=ButtonAppearance::Primary
-                            on_click=Callback::new(move |_| {
-                                let id = domain_id.get_untracked();
-                                confirm_delete_open.set(false);
-                                let finish_ok = Callback::new(move |_: ()| {
-                                    navigate_store.with_value(|nav| {
-                                        nav("/permission/create-domain", NavigateOptions::default());
-                                    });
-                                });
-                                spawn_with_step_up(error, finish_ok, move || {
-                                    let id = id.clone();
-                                    async move { delete_domain(id).await }
-                                });
-                            })
-                        >
-                            "Delete"
-                        </Button>
-                    </DialogActions>
+                    {move || match blocking.get() {
+                        Some(Ok(perms)) if !perms.is_empty() => {
+                            let name = shown_name.get();
+                            let n = perms.len();
+                            let count = if n == 1 { "1 permission".to_string() } else { format!("{n} permissions") };
+                            view! {
+                                <DialogTitle>{format!("{name} can't be deleted yet")}</DialogTitle>
+                                <DialogContent>
+                                    <div data-testid="gauge-domain-delete-blocked">
+                                        <Flex vertical=true gap=FlexGap::Medium>
+                                            <Body1>{format!("{name} still has {count}. Move or delete them first.")}</Body1>
+                                            <Table>
+                                                <TableHeader>
+                                                    <TableRow>
+                                                        <TableHeaderCell>"Permission"</TableHeaderCell>
+                                                        <TableHeaderCell>"Key"</TableHeaderCell>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {perms.into_iter().map(|p| view! {
+                                                        <TableRow>
+                                                            <TableCell>{p.display_name}</TableCell>
+                                                            <TableCell>{p.key}</TableCell>
+                                                        </TableRow>
+                                                    }).collect_view()}
+                                                </TableBody>
+                                            </Table>
+                                        </Flex>
+                                    </div>
+                                </DialogContent>
+                                <DialogActions>
+                                    <Button appearance=ButtonAppearance::Primary on_click=Callback::new(move |_| confirm_delete_open.set(false))>
+                                        "Close"
+                                    </Button>
+                                </DialogActions>
+                            }.into_any()
+                        }
+                        Some(_) => view! {
+                            <DialogTitle>{move || format!("Delete {}?", shown_name.get())}</DialogTitle>
+                            <DialogContent>"It holds no permissions, so nothing else changes."</DialogContent>
+                            <DialogActions>
+                                <Button
+                                    appearance=ButtonAppearance::Secondary
+                                    on_click=Callback::new(move |_| confirm_delete_open.set(false))
+                                >
+                                    "Cancel"
+                                </Button>
+                                <div id="gauge-domain-delete-confirm">
+                                <Button
+                                    appearance=ButtonAppearance::Primary
+                                    on_click=Callback::new(move |_| {
+                                        let id = domain_id.get_untracked();
+                                        confirm_delete_open.set(false);
+                                        let finish_ok = Callback::new(move |_: ()| {
+                                            navigate_store.with_value(|nav| {
+                                                nav("/permission/domains", NavigateOptions::default());
+                                            });
+                                        });
+                                        spawn_with_step_up(error, finish_ok, move || {
+                                            let id = id.clone();
+                                            async move { delete_domain(id).await }
+                                        });
+                                    })
+                                >
+                                    "Delete"
+                                </Button>
+                                </div>
+                            </DialogActions>
+                        }.into_any(),
+                        None => view! {
+                            <DialogTitle>"Checking the domain"</DialogTitle>
+                            <DialogContent><SkeletonItem width="100%".to_string() /></DialogContent>
+                        }.into_any(),
+                    }}
                 </DialogBody>
             </DialogSurface>
         </Dialog>

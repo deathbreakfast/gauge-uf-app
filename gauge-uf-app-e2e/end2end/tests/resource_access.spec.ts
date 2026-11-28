@@ -175,7 +175,7 @@ test.describe("e2e.rag.requests", () => {
     const { fixtures } = await seedAuth(page, "admin");
     await page.goto("/permission/requests", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
-    await expect(page.getByText("Needs Review", { exact: true })).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator("#gauge-requests-tabs").getByRole("tab", { name: /Waiting for you/ })).toBeVisible({ timeout: 60_000 });
     await expect(
       page.locator(`a[href="/permission/requests/${fixtures.resource_request_id}"]`).first(),
     ).toBeVisible({ timeout: 60_000 });

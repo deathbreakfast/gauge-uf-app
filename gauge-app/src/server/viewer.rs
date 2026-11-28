@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 /// The signed-in person's standing in Gauge.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ViewerAccess {
+    /// Their user id, so a page can tell their own records apart.
+    pub user_id: String,
     /// They hold `GaugeAdmin`.
     pub gauge_admin: bool,
     /// Ids of the groups they own, directly or through an owner group.
@@ -73,6 +75,7 @@ pub async fn get_viewer_access() -> Result<ViewerAccess, ServerFnError> {
         .filter(|r| r.status == PermissionRequestStatusDto::Pending)
         .count();
     Ok(ViewerAccess {
+        user_id: ctx.session_user_id().cloned().unwrap_or_default(),
         gauge_admin,
         owned_groups: owned(RecordKind::Group),
         owned_permissions: owned(RecordKind::Permission),

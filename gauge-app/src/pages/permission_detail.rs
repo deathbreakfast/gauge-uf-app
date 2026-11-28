@@ -43,7 +43,9 @@ use crate::pages::shared::remove_confirm::{
 use crate::pages::shared::request_access::{
     requested_for_handle, wants_request_dialog, RequestAccessDialog,
 };
-use crate::pages::shared::words::{date_view, kind_word, paths_text, plain_name};
+use crate::pages::shared::words::{
+    date_view, kind_word, paths_text, plain_name, principal_name_view, service_user_of_row,
+};
 use crate::pages::step_up::spawn_with_step_up_to;
 use crate::server::viewer::{use_viewer_access, viewer_now};
 use crate::server::{
@@ -598,7 +600,7 @@ fn WhoHasAccessTab(
                                             let kind = text_of(&r, "kind");
                                             view! {
                                                 <Flex vertical=true gap=FlexGap::Size(0)>
-                                                    <Body1Strong>{who}</Body1Strong>
+                                                    {principal_name_view(who, service_user_of_row(&r.id))}
                                                     <Caption1>{kind}</Caption1>
                                                 </Flex>
                                             }.into_any()
@@ -708,11 +710,12 @@ fn AllowListTab(
                                         let kind = kind_word(&p.kind, p.owner_label.as_deref());
                                         let label = p.label.clone();
                                         let menu_label = format!("Actions for {label}");
+                                        let service_user = (p.kind == PrincipalKind::ServiceUser).then(|| p.id.clone());
                                         view! {
                                             <TableRow attr:data-testid="gauge-perm-allow-row">
                                                 <TableCell>
                                                     <Flex vertical=true gap=FlexGap::Size(0)>
-                                                        <Body1Strong>{label}</Body1Strong>
+                                                        {principal_name_view(label, service_user)}
                                                         <Caption1>{kind}</Caption1>
                                                     </Flex>
                                                 </TableCell>

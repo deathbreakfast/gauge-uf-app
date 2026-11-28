@@ -1,5 +1,6 @@
 use leptos::prelude::*;
 use leptos_router::components::A;
+use leptos_router::hooks::use_query_map;
 use uf_product::components::{Body1, Caption1, Card, EmptyState, SkeletonItemSize};
 use uf_product::components::{
     CardContent, CardSectionBorder, ContentContainer, SpacingHorizontal, SpacingInset, SpacingSize,
@@ -12,6 +13,7 @@ use uf_product::primitives::{
 };
 
 use crate::pages::shared::query_state::use_index_search;
+use crate::pages::shared::request_access::{requested_for_handle, wants_request_dialog};
 use crate::resource_access::GroupRowDto;
 use crate::server::{list_group_rows, list_groups};
 
@@ -65,6 +67,15 @@ pub fn GroupsIndexPage() -> impl IntoView {
     );
     // Switching tabs filters the loaded rows; it doesn't refetch.
     let tab = RwSignal::new(ALL_TAB.to_string());
+    // `?request=1&for=<handle>` (from a service user page): each group opens with Request
+    // access up for that service user.
+    let query = use_query_map();
+    let asking_for = Memo::new(move |_| {
+        let q = query.read();
+        wants_request_dialog(&q)
+            .then(|| requested_for_handle(&q))
+            .flatten()
+    });
 
     view! {
         <div id="gauge-groups-page">
@@ -108,6 +119,13 @@ pub fn GroupsIndexPage() -> impl IntoView {
                                     <Tab value=TEAMS_TAB>"Teams"</Tab>
                                 </TabList>
                             </div>
+                            <Show when=move || asking_for.get().is_some()>
+                                <div data-testid="gauge-groups-asking-for">
+                                <MessageBar intent=MessageBarIntent::Info>
+                                    {move || format!("Pick a group to ask for @{}. Its page opens with Request access ready.", asking_for.get().unwrap_or_default())}
+                                </MessageBar>
+                                </div>
+                            </Show>
                             <Show when=move || missing.get().is_some()>
                                 <div id="gauge-groups-name-missing">
                                 <MessageBar intent=MessageBarIntent::Warning>
@@ -186,7 +204,10 @@ pub fn GroupsIndexPage() -> impl IntoView {
                                                 let is_managed = row.managed.is_some();
                                                 let archived = row.managed.as_ref().is_some_and(|m| m.archived);
                                                 let caption = group_caption(&row);
-                                                let href = format!("/permission/groups/{}", row.group.id);
+                                                let href = match asking_for.get_untracked() {
+                                                    Some(handle) => format!("/permission/groups/{}?request=1&for={handle}", row.group.id),
+                                                    None => format!("/permission/groups/{}", row.group.id),
+                                                };
                                                 let name = row.group.name.clone();
                                                 view! {
                                                 <>

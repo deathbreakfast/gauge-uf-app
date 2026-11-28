@@ -24,6 +24,12 @@ export type SeedFixtures = {
   service_user_handle: string;
   /** Active service user owned by `admin`. */
   foreign_service_user_handle: string;
+  /** Id of `service_user_handle`. */
+  service_user_id: string;
+  /** Paused service user owned by `requestor` (handle `requestor-paused`). */
+  paused_service_user_id: string;
+  /** Id of `foreign_service_user_handle`. */
+  foreign_service_user_id: string;
   /** Domain of the seeded Chronon job's resource bundle. */
   resource_domain_id: string;
   /** Active Polaron team group with Can edit on the job. */
@@ -38,8 +44,74 @@ export type SeedFixtures = {
   release_permission_id: string;
 };
 
-/** All Permission Help inventory keys — seed as seen so non-tour specs stay quiet. */
+/** All Gauge Help inventory keys — seed as seen so non-tour specs stay quiet. */
 const GAUGE_HELP_STEPS_SEEN = [
+  {
+    route: "/permission",
+    feature_highlight: "overview-intro",
+    spotlight: null,
+    replay: false,
+  },
+  {
+    route: "/permission",
+    feature_highlight: "overview-waiting",
+    spotlight: "gauge-overview-waiting",
+    replay: false,
+  },
+  {
+    route: "/permission",
+    feature_highlight: "overview-access",
+    spotlight: "gauge-overview-access",
+    replay: false,
+  },
+  {
+    route: "/permission/people",
+    feature_highlight: "people-intro",
+    spotlight: "gauge-people-tabs",
+    replay: false,
+  },
+  {
+    route: "/permission/people",
+    feature_highlight: "people-search",
+    spotlight: "gauge-people-search",
+    replay: false,
+  },
+  {
+    route: "/permission/people/:id",
+    feature_highlight: "person-can-do",
+    spotlight: "gauge-person-can-do",
+    replay: false,
+  },
+  {
+    route: "/permission/people/:id",
+    feature_highlight: "person-groups",
+    spotlight: "gauge-person-groups",
+    replay: false,
+  },
+  {
+    route: "/permission/domains",
+    feature_highlight: "domains-intro",
+    spotlight: "gauge-domains-list",
+    replay: false,
+  },
+  {
+    route: "/permission/activity",
+    feature_highlight: "activity-filters",
+    spotlight: "gauge-activity-filters",
+    replay: false,
+  },
+  {
+    route: "/permission/activity",
+    feature_highlight: "activity-csv",
+    spotlight: "gauge-activity-csv",
+    replay: false,
+  },
+  {
+    route: "/permission/requests",
+    feature_highlight: "requests-filters",
+    spotlight: "gauge-requests-filters",
+    replay: false,
+  },
   {
     route: "/permission/create-domain",
     feature_highlight: "create-domain-intro",
@@ -139,31 +211,13 @@ const GAUGE_HELP_STEPS_SEEN = [
   {
     route: "/permission/requests",
     feature_highlight: "requests-intro",
-    spotlight: "gauge-requests-page",
+    spotlight: "gauge-requests-tabs",
     replay: false,
   },
   {
     route: "/permission/requests",
     feature_highlight: "requests-needs-review",
     spotlight: "gauge-requests-needs-review",
-    replay: false,
-  },
-  {
-    route: "/permission/requests",
-    feature_highlight: "requests-review-open",
-    spotlight: "gauge-requests-review-open",
-    replay: false,
-  },
-  {
-    route: "/permission/requests",
-    feature_highlight: "requests-mine",
-    spotlight: "gauge-requests-mine",
-    replay: false,
-  },
-  {
-    route: "/permission/requests",
-    feature_highlight: "requests-mine-open",
-    spotlight: "gauge-requests-mine-open",
     replay: false,
   },
   {

@@ -12,7 +12,7 @@ import {
 test.describe("e2e.perm.index", () => {
   test("e2e.perm.index.load_happy", async ({ page }) => {
     await seedAuth(page, "admin");
-    await page.goto("/permission", { waitUntil: "domcontentloaded" });
+    await page.goto("/permission/permissions", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
     await expect(page.getByTestId("gauge-permissions-index")).toBeVisible({
       timeout: 60_000,

@@ -117,7 +117,10 @@ test.describe("e2e.perm.detail", () => {
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible({ timeout: 15_000 });
     await dialog.locator("textarea").fill(`outsider needs access ${Date.now()}`);
-    await dialog.getByRole("button", { name: "Submit Request", exact: true }).click();
+    await dialog.getByRole("button", { name: "Send request", exact: true }).click();
+    await expect(dialog.getByTestId("gauge-request-sent")).toBeVisible({ timeout: 60_000 });
+    await expect(dialog.getByText(/^Request sent to /)).toBeVisible();
+    await dialog.getByRole("button", { name: "Done", exact: true }).click();
     await expect(dialog).toHaveCount(0, { timeout: 60_000 });
   });
 
@@ -128,8 +131,8 @@ test.describe("e2e.perm.detail", () => {
     await expect(requestBtn).toBeVisible({ timeout: 60_000 });
     await requestBtn.click();
     const dialog = page.getByRole("dialog");
-    await dialog.getByRole("button", { name: "Submit Request", exact: true }).click();
-    await expect(page.getByText(/Reason is required/i)).toBeVisible({ timeout: 30_000 });
+    await dialog.getByRole("button", { name: "Send request", exact: true }).click();
+    await expect(dialog.getByText(/Say why you need it/i)).toBeVisible({ timeout: 30_000 });
   });
 
   test("e2e.perm.detail.not_found", async ({ page }) => {

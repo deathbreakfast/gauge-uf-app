@@ -4,16 +4,29 @@
 //! A detail page opened with `?request=1` shows the dialog on arrival; `&for=<handle>`
 //! preselects one of the caller's active service users in the "Request for" choice.
 
-use gauge::types::{PermissionRequestCreateInput, PermissionRequestTargetKind};
+use gauge::types::{
+    PermissionRequestCreateInput, PermissionRequestRowDto, PermissionRequestStatusDto,
+    PermissionRequestTargetKind,
+};
 use leptos::prelude::*;
 use leptos::task::spawn_local_scoped;
+use leptos_router::hooks::use_navigate;
 use leptos_router::params::ParamsMap;
+use leptos_router::NavigateOptions;
+use uf_product::components::{Body1, Caption1, Caption1Strong};
 use uf_product::primitives::{
     Button, ButtonAppearance, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface,
-    DialogTitle, Field, Flex, FlexGap, MessageBar, MessageBarIntent, Select, Textarea,
+    DialogTitle, Field, Flex, FlexGap, FlexWrap, MessageBar, MessageBarBody, MessageBarIntent,
+    MessageBarLayout, MessageBarTitle, Select, Textarea,
 };
 
-use crate::server::{create_permission_request, list_my_active_service_users, ServiceUserOption};
+use crate::components::error_bar::MaybeErrorBar;
+use crate::pages::shared::words::when_view;
+use crate::server::surfaces::{get_request_reviewers, review_target};
+use crate::server::{
+    create_permission_request, get_group, get_group_access, get_permission,
+    list_my_active_service_users, list_my_permission_requests, ServiceUserOption,
+};
 
 /// Whether the URL asks for the Request Access dialog to open on arrival (`request=1`).
 #[must_use]
@@ -46,8 +59,70 @@ fn initial_choice(
     }
 }
 
-/// Request Access dialog: a "Request for" choice (yourself or one of your active service
-/// users), a reason, and submit. Calls `on_submitted` after the request is created.
+/// What the dialog shows about its target: its name, what members get and who reviews it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct TargetFacts {
+    name: String,
+    members_get: Vec<String>,
+    reviewers: String,
+}
+
+async fn target_facts(
+    kind: PermissionRequestTargetKind,
+    id: String,
+) -> Result<TargetFacts, ServerFnError> {
+    let reviewers = get_request_reviewers(vec![review_target(&kind, &id)])
+        .await
+        .ok()
+        .and_then(|mut lines| lines.pop())
+        .unwrap_or_default();
+    let (name, members_get) = match kind {
+        PermissionRequestTargetKind::Group => {
+            let name = get_group(id.clone())
+                .await?
+                .map(|g| g.name)
+                .unwrap_or_default();
+            let gives = get_group_access(id)
+                .await
+                .map(|perms| perms.into_iter().map(|p| p.display_name).collect())
+                .unwrap_or_default();
+            (name, gives)
+        }
+        PermissionRequestTargetKind::Permission => {
+            let name = get_permission(id)
+                .await?
+                .map(|p| {
+                    if p.display_name.trim().is_empty() {
+                        p.name
+                    } else {
+                        p.display_name
+                    }
+                })
+                .unwrap_or_default();
+            (name.clone(), vec![name])
+        }
+    };
+    Ok(TargetFacts {
+        name,
+        members_get,
+        reviewers,
+    })
+}
+
+/// The dialog's title: "Ask to join Release Captains" or "Ask for Approve releases".
+#[must_use]
+pub fn ask_title(kind: &PermissionRequestTargetKind, name: &str) -> String {
+    match (kind, name.is_empty()) {
+        (_, true) => "Request access".to_string(),
+        (PermissionRequestTargetKind::Group, false) => format!("Ask to join {name}"),
+        (PermissionRequestTargetKind::Permission, false) => format!("Ask for {name}"),
+    }
+}
+
+/// Request Access dialog: what members get and who reviews, a "Request for" choice (yourself
+/// or one of your active service users), a reason, and Send. After Send it says who the
+/// request went to; asking again for yourself shows the open request instead. Calls
+/// `on_submitted` when the dialog closes after a request was sent.
 #[component]
 pub fn RequestAccessDialog(
     /// Whether the dialog is showing.
@@ -60,13 +135,16 @@ pub fn RequestAccessDialog(
     /// Service user handle to preselect (from `?for=`).
     #[prop(into)]
     preselect_for: Signal<Option<String>>,
-    /// Runs after a request is created.
+    /// Runs after a request is created and the dialog closes.
     on_submitted: Callback<()>,
 ) -> impl IntoView {
     let reason = RwSignal::new(String::new());
     let error = RwSignal::new(None::<String>);
     let request_for = RwSignal::new(String::new());
     let not_yours = RwSignal::new(None::<String>);
+    // The request this dialog just sent.
+    let sent = RwSignal::new(None::<PermissionRequestRowDto>);
+    let navigate = use_navigate();
 
     // Only fetched once the dialog opens, so plain page views don't list service users.
     let service_users = Resource::new(
@@ -79,6 +157,48 @@ pub fn RequestAccessDialog(
             }
         },
     );
+    let kind_for_facts = target_kind.clone();
+    let facts = crate::pages::shared::local_resource(
+        move || open.get().then(|| target_id.get()),
+        move |id| {
+            let kind = kind_for_facts.clone();
+            async move {
+                match id {
+                    Some(id) => target_facts(kind, id).await.ok(),
+                    None => None,
+                }
+            }
+        },
+    );
+    // The caller's own open request for this target, if they already asked for themselves.
+    let kind_for_open = target_kind.clone();
+    let already = crate::pages::shared::local_resource(
+        move || open.get().then(|| target_id.get()),
+        move |id| {
+            let kind = kind_for_open.clone();
+            async move {
+                let id = id?;
+                list_my_permission_requests()
+                    .await
+                    .ok()?
+                    .into_iter()
+                    .find(|r| {
+                        r.target_kind == kind
+                            && r.target_id == id
+                            && r.on_behalf_of.is_none()
+                            && r.status == PermissionRequestStatusDto::Pending
+                    })
+            }
+        },
+    );
+    let reviewers = Signal::derive(move || {
+        facts
+            .get()
+            .flatten()
+            .map(|f| f.reviewers)
+            .filter(|r| !r.is_empty())
+            .unwrap_or_else(|| "its owners".to_string())
+    });
 
     Effect::new(move |_| {
         if let Some(Ok(options)) = service_users.get() {
@@ -89,10 +209,20 @@ pub fn RequestAccessDialog(
         }
     });
 
+    let title_kind = StoredValue::new(target_kind.clone());
+    let close = Callback::new(move |()| {
+        open.set(false);
+        error.set(None);
+        if sent.get_untracked().is_some() {
+            sent.set(None);
+            on_submitted.run(());
+        }
+    });
+
     let submit = move |_| {
         let reason_text = reason.get();
         if reason_text.trim().is_empty() {
-            error.set(Some("Reason is required.".to_string()));
+            error.set(Some("validation: Say why you need it.".to_string()));
             return;
         }
         let handle = request_for.get();
@@ -104,73 +234,137 @@ pub fn RequestAccessDialog(
         };
         spawn_local_scoped(async move {
             match create_permission_request(input).await {
-                Ok(_) => {
-                    open.set(false);
+                Ok(row) => {
                     error.set(None);
                     reason.set(String::new());
-                    on_submitted.run(());
+                    sent.set(Some(row));
                 }
                 Err(err) => error.set(Some(err.to_string())),
             }
         });
+    };
+    let open_request = {
+        let navigate = navigate.clone();
+        Callback::new(move |id: String| {
+            open.set(false);
+            sent.set(None);
+            navigate(
+                &format!("/permission/requests/{id}"),
+                NavigateOptions::default(),
+            );
+        })
     };
 
     view! {
         <Dialog open=open>
             <DialogSurface>
                 <DialogBody>
-                    <DialogTitle>"Request Access"</DialogTitle>
+                    <DialogTitle>
+                        {move || ask_title(&title_kind.get_value(), &facts.get().flatten().map(|f| f.name).unwrap_or_default())}
+                    </DialogTitle>
                     <DialogContent>
-                        <Flex vertical=true gap=FlexGap::Small>
-                            <Transition fallback=|| ()>
-                                {move || service_users.get().map(|result| {
-                                    let options = result.unwrap_or_default();
-                                    view! {
-                                        <div id="gauge-request-for">
-                                        <Field label="Request for">
-                                            <Select bind=request_for>
-                                                <option value="">"Yourself"</option>
-                                                {options.into_iter().map(|su| {
-                                                    let label = format!("@{} ({})", su.handle, su.display_name);
-                                                    view! { <option value=su.handle>{label}</option> }
-                                                }).collect_view()}
-                                            </Select>
-                                        </Field>
-                                        </div>
-                                    }
-                                })}
-                            </Transition>
-                            <Show when=move || not_yours.get().is_some()>
-                                <MessageBar intent=MessageBarIntent::Warning>
-                                    {move || format!(
-                                        "@{} isn't one of your active service users.",
-                                        not_yours.get().unwrap_or_default()
-                                    )}
-                                </MessageBar>
-                            </Show>
-                            <Field label="Reason">
-                                <Textarea bind=reason />
-                            </Field>
-                            <Show when=move || error.get().is_some()>
-                                <MessageBar intent=MessageBarIntent::Error>
-                                    {move || error.get().unwrap_or_default()}
-                                </MessageBar>
-                            </Show>
-                        </Flex>
+                        {move || {
+                            if let Some(row) = sent.get() {
+                                let target = facts.get().flatten().map(|f| f.name).unwrap_or_default();
+                                return view! {
+                                    <div data-testid="gauge-request-sent">
+                                        <MessageBar intent=MessageBarIntent::Success layout=MessageBarLayout::Multiline>
+                                            <MessageBarBody>
+                                                <MessageBarTitle>{format!("Request sent to {}", reviewers.get())}</MessageBarTitle>
+                                                {format!("They review requests for {target}. You'll get a notification when it's answered, and you can follow it under Requests.")}
+                                            </MessageBarBody>
+                                        </MessageBar>
+                                        <span hidden=true data-testid="gauge-request-sent-id">{row.id}</span>
+                                    </div>
+                                }.into_any();
+                            }
+                            if let Some(row) = already.get().flatten() {
+                                return view! {
+                                    <div data-testid="gauge-request-already">
+                                        <MessageBar intent=MessageBarIntent::Info layout=MessageBarLayout::Multiline>
+                                            <MessageBarBody>
+                                                <MessageBarTitle>"You already asked"</MessageBarTitle>
+                                                "Your request from " {when_view(row.created_at.clone())} {format!(" is waiting for {}.", reviewers.get())}
+                                            </MessageBarBody>
+                                        </MessageBar>
+                                    </div>
+                                }.into_any();
+                            }
+                            view! {
+                                <Flex vertical=true gap=FlexGap::Medium>
+                                    <div data-testid="gauge-request-facts">
+                                        <Flex gap=FlexGap::Large wrap=FlexWrap::Wrap>
+                                            <Flex vertical=true gap=FlexGap::Size(0)>
+                                                <Caption1Strong>"Members get"</Caption1Strong>
+                                                <Body1>{move || match facts.get() {
+                                                    Some(Some(f)) if !f.members_get.is_empty() => f.members_get.join(", "),
+                                                    Some(Some(_)) => "No permissions yet".to_string(),
+                                                    _ => String::new(),
+                                                }}</Body1>
+                                            </Flex>
+                                            <Flex vertical=true gap=FlexGap::Size(0)>
+                                                <Caption1Strong>"Reviewed by"</Caption1Strong>
+                                                <Body1>{move || reviewers.get()}</Body1>
+                                            </Flex>
+                                        </Flex>
+                                    </div>
+                                    <Transition fallback=|| ()>
+                                        {move || service_users.get().map(|result| {
+                                            let options = result.unwrap_or_default();
+                                            view! {
+                                                <div id="gauge-request-for">
+                                                <Field label="Request for">
+                                                    <Select bind=request_for>
+                                                        <option value="">"Yourself"</option>
+                                                        {options.into_iter().map(|su| {
+                                                            let label = format!("@{} ({})", su.handle, su.display_name);
+                                                            view! { <option value=su.handle>{label}</option> }
+                                                        }).collect_view()}
+                                                    </Select>
+                                                </Field>
+                                                </div>
+                                            }
+                                        })}
+                                    </Transition>
+                                    <Show when=move || not_yours.get().is_some()>
+                                        <MessageBar intent=MessageBarIntent::Warning>
+                                            {move || format!(
+                                                "@{} isn't one of your active service users.",
+                                                not_yours.get().unwrap_or_default()
+                                            )}
+                                        </MessageBar>
+                                    </Show>
+                                    <Field label="Why do you need it?">
+                                        <Textarea bind=reason />
+                                    </Field>
+                                    <Caption1>{move || format!("{} sees your name and this reason.", reviewers.get())}</Caption1>
+                                    <MaybeErrorBar error=error what="your request" />
+                                </Flex>
+                            }.into_any()
+                        }}
                     </DialogContent>
                     <DialogActions>
-                        <Button
-                            appearance=ButtonAppearance::Secondary
-                            on_click=Callback::new(move |_| {
-                                open.set(false);
-                                error.set(None);
-                            })
-                        >
-                            "Cancel"
-                        </Button>
-                        <Button appearance=ButtonAppearance::Primary on_click=Callback::new(submit)>
-                            "Submit Request"
-                        </Button>
+                        {move || {
+                            let pending_id = sent.get().map(|r| r.id).or_else(|| already.get().flatten().map(|r| r.id));
+                            match pending_id {
+                                Some(id) => view! {
+                                    <Button appearance=ButtonAppearance::Secondary on_click=Callback::new(move |_| open_request.run(id.clone()))>
+                                        "Open request"
+                                    </Button>
+                                    <Button appearance=ButtonAppearance::Primary on_click=Callback::new(move |_| close.run(()))>
+                                        {move || if sent.get().is_some() { "Done" } else { "Close" }}
+                                    </Button>
+                                }.into_any(),
+                                None => view! {
+                                    <Button appearance=ButtonAppearance::Secondary on_click=Callback::new(move |_| close.run(()))>
+                                        "Cancel"
+                                    </Button>
+                                    <Button appearance=ButtonAppearance::Primary on_click=Callback::new(submit.clone())>
+                                        "Send request"
+                                    </Button>
+                                }.into_any(),
+                            }
+                        }}
                     </DialogActions>
                 </DialogBody>
             </DialogSurface>
@@ -187,6 +381,22 @@ mod tests {
             handle: handle.to_string(),
             display_name: handle.to_string(),
         }
+    }
+
+    #[test]
+    fn titles_name_the_target_happy() {
+        assert_eq!(
+            ask_title(&PermissionRequestTargetKind::Group, "Release Captains"),
+            "Ask to join Release Captains"
+        );
+        assert_eq!(
+            ask_title(&PermissionRequestTargetKind::Permission, "Approve releases"),
+            "Ask for Approve releases"
+        );
+        assert_eq!(
+            ask_title(&PermissionRequestTargetKind::Group, ""),
+            "Request access"
+        );
     }
 
     #[test]
