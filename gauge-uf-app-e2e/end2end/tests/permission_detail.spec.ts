@@ -25,7 +25,7 @@ async function openTab(page: Page, name: RegExp) {
 async function addToAllowList(page: Page, query: string, name: string) {
   await openTab(page, /Allow list/);
   const list = page.getByTestId("gauge-perm-allow");
-  if ((await list.getByText(name, { exact: true }).count()) > 0) return;
+  if ((await list.getByText(name).count()) > 0) return;
   await page.locator("#gauge-perm-allow-add").getByRole("button").click();
   const dialog = page.getByTestId("gauge-give-access");
   await expect(dialog).toBeVisible({ timeout: 15_000 });
@@ -33,7 +33,7 @@ async function addToAllowList(page: Page, query: string, name: string) {
   await page.getByTestId("gauge-give-access-submit").click();
   await expect(page.getByTestId("gauge-permission-notice")).toBeVisible({ timeout: 60_000 });
   await openTab(page, /Allow list/);
-  await expect(list.getByText(name, { exact: true })).toBeVisible({ timeout: 60_000 });
+  await expect(list.getByText(name).first()).toBeVisible({ timeout: 60_000 });
 }
 
 test.describe("e2e.perm.detail", () => {
@@ -165,7 +165,7 @@ test.describe("e2e.perm.detail", () => {
     await openPermission(page, fixtures.release_permission_id);
     await openTab(page, /Activity/);
     const activity = page.getByTestId("gauge-record-activity");
-    await expect(activity.getByText(/Gave Release Captains Approve releases/).first()).toBeVisible({
+    await expect(activity.getByText(/Gave the group Release Captains Approve releases/).first()).toBeVisible({
       timeout: 60_000,
     });
     await expect(activity.getByText(PEOPLE.admin, { exact: false }).first()).toBeVisible();

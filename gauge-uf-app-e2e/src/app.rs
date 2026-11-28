@@ -33,15 +33,15 @@ pub fn App() -> impl IntoView {
         gauge_app::wire_gauge_permissions();
     }
     provide_shell_auth_menu(|| view! { <HarnessAuthMenu /> });
-    // Real hosts get the step-up dialog from lepton-shell's avatar menu; the harness menu
-    // doesn't mount it, so the host does.
+    // Provide the step-up controller at the root, so the pages and the dialog that
+    // lepton-shell's avatar menu mounts share it. Left to the menu, it lands in the menu's
+    // own subtree, where the pages can't reach it.
     lepton_auth_ui::provide_step_up_controller();
 
     view! {
         <OrbitalTemplate>
             <Stylesheet id="leptos" href="/pkg/gauge-uf-app-e2e.css"/>
             <Title text="gauge-uf-app e2e"/>
-            <lepton_auth_ui::StepUpDialog />
             <E2eAuthProvider>
                 <Router>
                     <Routes fallback=|| view! { <p>"Not found"</p> }>

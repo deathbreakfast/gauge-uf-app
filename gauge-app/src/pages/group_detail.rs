@@ -356,12 +356,16 @@ fn GroupLoaded(
             let Some(principal) = notice.get().and_then(|n| n.undo) else {
                 return;
             };
-            notice.set(None);
             let gid = group_id.clone();
             let label = plain_name(&principal.label);
             let kind = principal.kind.clone();
             let pid = principal.id.clone();
-            let done = Callback::new(move |()| refresh.update(|n| *n += 1));
+            // Clear the bar only once the add lands: the Undo button lives in it, and
+            // unmounting it first would cancel this task.
+            let done = Callback::new(move |()| {
+                notice.set(None);
+                refresh.update(|n| *n += 1);
+            });
             let kind_ref = kind.clone();
             spawn_member_change(
                 &gid,
