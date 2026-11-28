@@ -23,6 +23,9 @@ use valence::{
 struct E2eState {
     router: Arc<DatabaseRouter>,
     higgs: Arc<HiggsConfig>,
+    /// Lets the axum-login backend load users as a System actor, the way lepton hosts do;
+    /// the request factory refuses System actors from outside.
+    auth_valence_factory: Arc<dyn HiggsValenceFactory>,
     default_backend_key: String,
     fixtures: Mutex<FixtureIds>,
 }
@@ -602,6 +605,11 @@ pub async fn init_e2e_valence() {
         RouterValenceFactoryConfig::new(default_key.clone())
             .actor_json_policy(external_actor_json_policy()),
     )));
+    let auth_valence_factory: Arc<dyn HiggsValenceFactory> =
+        Arc::new(HiggsFactory(RouterValenceFactory::new(
+            Arc::clone(&router),
+            RouterValenceFactoryConfig::new(default_key.clone()),
+        )));
     let higgs = Arc::new(
         HiggsConfig::builder()
             .valence_factory_arc(factory)
@@ -612,6 +620,7 @@ pub async fn init_e2e_valence() {
     let state = Arc::new(E2eState {
         router,
         higgs,
+        auth_valence_factory,
         default_backend_key: default_key,
         fixtures: Mutex::new(fixtures),
     });
@@ -723,6 +732,11 @@ pub fn e2e_router() -> Arc<DatabaseRouter> {
 
 pub fn e2e_higgs_config() -> Arc<HiggsConfig> {
     Arc::clone(&state().higgs)
+}
+
+/// The factory the axum-login backend loads signed-in users through.
+pub fn e2e_valence_factory() -> Arc<dyn HiggsValenceFactory> {
+    Arc::clone(&state().auth_valence_factory)
 }
 
 pub fn e2e_fixtures() -> FixtureIds {

@@ -97,6 +97,7 @@ web-sys = { version = "=0.3.103", features = ["Element", "HtmlElement", "Node", 
 axum = "0.8.4"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tower-sessions = "0.14.0"
+axum-login = "0.18.0"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde", "wasmbind"] }
 
 valence = { package = "uf-valence", git = "https://github.com/unified-field-dev/valence", branch = "main", default-features = false }
