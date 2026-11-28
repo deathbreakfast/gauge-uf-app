@@ -4,7 +4,7 @@
 //! Gauge admins open anyone's page; everyone opens their own at `/permission/people/me`.
 //! The page server-renders the person and their access; Recent changes loads after hydration.
 
-use gauge::types::{ActivityFilter, RecordKind, RecordRef};
+use gauge::types::{RecordKind, RecordRef};
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use leptos_router::NavigateOptions;
@@ -32,7 +32,7 @@ use crate::pages::shared::reviewers::{reviewers_for, reviewers_of};
 use crate::pages::shared::words::{
     date_view, first_name, path_text, plain_name, status_words, when_view,
 };
-use crate::server::get_activity;
+use crate::server::surfaces::get_activity_window;
 use crate::server::surfaces::{get_person_page, PersonPage};
 use crate::server::viewer::{use_viewer_access, viewer_now};
 
@@ -443,16 +443,14 @@ fn PersonRecentChanges(name: String) -> impl IntoView {
     let rows = local_resource(
         move || query.clone(),
         |q| async move {
-            let filter = ActivityFilter {
-                query: Some(q),
-                ..Default::default()
-            };
-            get_activity(filter, None).await.map(|page| {
-                page.items
-                    .into_iter()
-                    .take(RECENT_CHANGES)
-                    .collect::<Vec<_>>()
-            })
+            get_activity_window(String::new(), None, q, None)
+                .await
+                .map(|page| {
+                    page.items
+                        .into_iter()
+                        .take(RECENT_CHANGES)
+                        .collect::<Vec<_>>()
+                })
         },
     );
     let href = format!("/permission/activity?q={}", js_encode(&name));

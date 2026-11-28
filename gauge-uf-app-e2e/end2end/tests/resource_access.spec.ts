@@ -150,7 +150,7 @@ test.describe("e2e.rag.domain", () => {
 test.describe("e2e.rag.requests", () => {
   test("e2e.rag.requests.resource_label", async ({ page }) => {
     const { fixtures } = await seedAuth(page, "requestor");
-    await page.goto("/permission/requests", { waitUntil: "domcontentloaded" });
+    await page.goto("/permission/requests?tab=mine", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
     await expect(page.getByText(`${JOB} · Can view`).first()).toBeVisible({ timeout: 60_000 });
 

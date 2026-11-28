@@ -13,11 +13,17 @@ pub fn reviewers_for(
     rows: Signal<Vec<PermissionRequestRowDto>>,
 ) -> LocalResource<HashMap<String, String>> {
     LocalResource::new(move || {
-        let mut targets: Vec<String> = rows.with(|rows| {
-            rows.iter()
-                .map(|r| review_target(&r.target_kind, &r.target_id))
-                .collect()
-        });
+        // The key runs during server rendering too, and `rows` may read another browser-only
+        // resource; read nothing there.
+        let mut targets: Vec<String> = if cfg!(feature = "ssr") {
+            Vec::new()
+        } else {
+            rows.with(|rows| {
+                rows.iter()
+                    .map(|r| review_target(&r.target_kind, &r.target_id))
+                    .collect()
+            })
+        };
         targets.sort();
         targets.dedup();
         async move {

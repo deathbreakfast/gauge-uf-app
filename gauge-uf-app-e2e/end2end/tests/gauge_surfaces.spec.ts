@@ -56,11 +56,13 @@ test.describe("gauge.people", () => {
   });
 
   test("pw-gauge-people-service-users-tab-opens-page-happy", async ({ page }) => {
-    const { fixtures } = await seedAuth(page, "admin");
+    // Gauge lists only the service users the viewer can see; admin owns admin-agent, which
+    // gets a principal row by joining the fixture group.
+    const { fixtures } = await seedAuth(page, "admin", false, { serviceUserMember: true });
     await page.goto("/permission/people?tab=service-users", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
     const table = page.getByTestId("gauge-people-table");
-    await expect(table.getByText(fixtures.service_user_handle, { exact: false }).first()).toBeVisible({
+    await expect(table.getByText(fixtures.foreign_service_user_handle, { exact: false }).first()).toBeVisible({
       timeout: 60_000,
     });
   });
@@ -158,7 +160,7 @@ test.describe("gauge.service-user-page", () => {
     ).toBeVisible();
     const perm = page
       .getByTestId("gauge-service-user-permission-row")
-      .filter({ hasText: "Approve releases" });
+      .filter({ hasText: "Post release timings" });
     await expect(perm.getByText("Through")).toBeVisible();
     await expect(perm.getByRole("link", { name: "Release bots" })).toBeVisible();
   });

@@ -23,11 +23,9 @@ use crate::components::error_bar::ErrorBar;
 use crate::pages::shared::local_resource;
 use crate::pages::shared::reviewers::{reviewers_for, reviewers_of};
 use crate::pages::shared::words::{asks_for, plain_name, status_words, when_view};
-use crate::server::surfaces::get_overview_stats;
+use crate::server::surfaces::{get_activity_window, get_overview_stats};
 use crate::server::viewer::{use_viewer_access, viewer_now};
-use crate::server::{
-    get_activity, get_my_access, list_my_permission_requests, list_review_permission_requests,
-};
+use crate::server::{get_my_access, list_my_permission_requests, list_review_permission_requests};
 
 /// How many recent changes the Overview lists.
 const RECENT_CHANGES: usize = 5;
@@ -259,7 +257,7 @@ fn RecentChanges(refresh: RwSignal<u32>, failed: RwSignal<Option<String>>) -> im
     let rows = local_resource(
         move || refresh.get(),
         |_| async move {
-            get_activity(gauge::types::ActivityFilter::default(), None)
+            get_activity_window(String::new(), None, String::new(), None)
                 .await
                 .map(|page| {
                     page.items

@@ -75,22 +75,30 @@ pub async fn get_overview_stats() -> Result<OverviewStats, ServerFnError> {
     Ok(stats)
 }
 
-/// One page of Gauge's change log for the Activity page, limited to the last `days` days
-/// (any time when `None`). The cutoff is taken from the server's clock. Gauge admins only.
+/// One page of Gauge's change log for the Activity page and the Recent changes cards. Gauge
+/// admins only.
+///
+/// Takes plain values rather than an `ActivityFilter`, so the call encodes as a simple form.
+/// The `days` cutoff comes from the server's clock.
 #[uf_product_macros::server]
 pub async fn get_activity_window(
-    /// Which changes to list; its `since` is replaced by the window.
-    filter: gauge::types::ActivityFilter,
-    /// How many days back to reach.
+    /// What changed, as the Activity page's `?kind=` value; empty for every kind.
+    kind: String,
+    /// How many days back to reach; `None` for any time.
     days: Option<i64>,
+    /// Text to search summaries, people and record names for; empty for none.
+    query: String,
     /// The previous page's `next_cursor`.
     cursor: Option<String>,
 ) -> Result<gauge::types::Page<gauge::types::ActivityRow>, ServerFnError> {
     let ctx = higgs::Higgs::from_request().await?;
     require_session(&ctx)?;
+    let query = query.trim().to_string();
     let filter = gauge::types::ActivityFilter {
+        kinds: crate::pages::activity::kinds_for(&kind),
         since: days.map(|d| chrono::Utc::now() - chrono::Duration::days(d)),
-        ..filter
+        query: (!query.is_empty()).then_some(query),
+        ..Default::default()
     };
     gauge::service::list_activity(filter, cursor.as_deref(), &valence_from_ctx(&ctx)?)
         .await
@@ -216,8 +224,10 @@ pub async fn get_person_page(
     let ctx = higgs::Higgs::from_request().await?;
     require_session(&ctx)?;
     let v = valence_from_ctx(&ctx)?;
-    let me = ctx.session_user_id().cloned().unwrap_or_default();
-    let user_id = if id == "me" { me.clone() } else { id };
+    // The session id may carry a `user:` table prefix; User rows are keyed by the bare id.
+    let bare = |raw: &str| raw.rsplit(':').next().unwrap_or(raw).to_string();
+    let me = bare(&ctx.session_user_id().cloned().unwrap_or_default());
+    let user_id = if id == "me" { me.clone() } else { bare(&id) };
     let Some(user) = lepton::generated::User::get(&user_id, &v, valence::use_!(r"When someone opens a **person's page in Gauge**, we **load that person's account** to check they exist and show their name. Gauge admins can open anyone's page; everyone else only their own.")).await.map_err(|e| map_service_err("load the person", e))? else {
         return Ok(None);
     };

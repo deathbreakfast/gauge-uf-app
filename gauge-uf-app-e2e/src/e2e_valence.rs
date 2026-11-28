@@ -295,12 +295,13 @@ async fn seed_release_captains(
     Ok((captains_id, permission_id))
 }
 
-/// "Release bots": holds Approve releases, with `requestor`'s service user as its member, so
-/// the service user page has a permission that comes through a group. Runs while `admin` is
+/// "Release bots": holds its own permission, "Post release timings", with `requestor`'s
+/// service user as its member, so the service user page has a permission that comes through
+/// a group. Approve releases' allow list stays as other specs expect it. Runs while `admin` is
 /// still Super User.
 async fn seed_release_bots(
     admin_ctx: &Valence,
-    release_permission_id: &str,
+    domain_id: &str,
     service_user_id: &str,
 ) -> anyhow::Result<()> {
     let bots = service::create_group(
@@ -312,7 +313,18 @@ async fn seed_release_bots(
     )
     .await?;
     let bots_id = record_pk_id(bots.id());
-    service::grant_permission_to_group(release_permission_id, &bots_id, admin_ctx).await?;
+    let timings = service::create_permission(
+        PermissionCreateInput {
+            display_name: "Post release timings".into(),
+            name: "PostReleaseTimings".into(),
+            description: "Post build timings to the release channel.".into(),
+            domain_id: domain_id.to_string(),
+            owners_group_id: String::new(),
+        },
+        admin_ctx,
+    )
+    .await?;
+    service::grant_permission_to_group(&record_pk_id(timings.id()), &bots_id, admin_ctx).await?;
     let service_user = lepton_identity::service_users::ServiceUserId::parse(service_user_id)?;
     service::add_group_member_service_user(&bots_id, &service_user, admin_ctx).await
 }
@@ -682,13 +694,9 @@ pub async fn init_e2e_valence() {
     fixtures.foreign_service_user_id = service_user_id(&admin_ctx, ADMIN_SERVICE_USER)
         .await
         .expect("foreign service user id");
-    seed_release_bots(
-        &admin_ctx,
-        &fixtures.release_permission_id,
-        &fixtures.service_user_id,
-    )
-    .await
-    .expect("seed release bots");
+    seed_release_bots(&admin_ctx, &fixtures.domain_b_id, &fixtures.service_user_id)
+        .await
+        .expect("seed release bots");
 
     demote_admin_from_super_user(&system).await;
     enroll_admin_authenticator(&system).await;

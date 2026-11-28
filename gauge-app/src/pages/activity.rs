@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use gauge::types::{ActivityFilter, ActivityKind, ActivityRow};
+use gauge::types::{ActivityKind, ActivityRow};
 use leptos::prelude::*;
 use leptos::task::spawn_local_scoped;
 use uf_product::components::{
@@ -46,6 +46,9 @@ const WHEN: [(&str, &str, i64); 4] = [
     ("30d", "Last 30 days", 30),
     ("90d", "Last 90 days", 90),
 ];
+
+/// The log a page of rows came from: `?kind=`, days back, search text.
+type LogQuery = (String, Option<i64>, String);
 
 /// The filter word for a change's kind ("Membership", "Allow lists").
 #[must_use]
@@ -155,20 +158,14 @@ fn ActivityLog() -> impl IntoView {
     let first = Resource::new(
         move || (kind.get(), when.get(), search.get(), refresh.get()),
         |(kind, when, q, _)| async move {
-            let q = q.trim().to_string();
-            let filter = ActivityFilter {
-                kinds: kinds_for(&kind),
-                query: (!q.is_empty()).then_some(q),
-                ..Default::default()
-            };
             let days = days_for(&when);
-            get_activity_window(filter.clone(), days, None)
+            get_activity_window(kind.clone(), days, q.clone(), None)
                 .await
-                .map(|page| ((filter, days), page))
+                .map(|page| ((kind, days, q), page))
         },
     );
     let more = RwSignal::new(Vec::<ActivityRow>::new());
-    let next = RwSignal::new(None::<((ActivityFilter, Option<i64>), String)>);
+    let next = RwSignal::new(None::<(LogQuery, String)>);
     let loading_more = RwSignal::new(false);
     let more_error = RwSignal::new(None::<String>);
     let is_narrow = use_breakpoint_down(Breakpoint::Md);
@@ -337,15 +334,15 @@ fn ActivityLog() -> impl IntoView {
                         appearance=ButtonAppearance::Secondary
                         disabled=Signal::derive(move || loading_more.get())
                         on_click=Callback::new(move |_| {
-                            let Some(((filter, days), cursor)) = next.get_untracked() else {
+                            let Some(((kind, days, q), cursor)) = next.get_untracked() else {
                                 return;
                             };
                             loading_more.set(true);
                             spawn_local_scoped(async move {
-                                match get_activity_window(filter.clone(), days, Some(cursor)).await {
+                                match get_activity_window(kind.clone(), days, q.clone(), Some(cursor)).await {
                                     Ok(page) => {
                                         more.update(|rows| rows.extend(page.items));
-                                        next.set(page.next_cursor.map(|c| ((filter, days), c)));
+                                        next.set(page.next_cursor.map(|c| ((kind, days, q), c)));
                                         more_error.set(None);
                                     }
                                     Err(e) => more_error.set(Some(e.to_string())),
