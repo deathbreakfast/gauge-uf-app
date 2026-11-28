@@ -150,7 +150,7 @@ test.describe("e2e.rag.domain", () => {
 test.describe("e2e.rag.requests", () => {
   test("e2e.rag.requests.resource_label", async ({ page }) => {
     const { fixtures } = await seedAuth(page, "requestor");
-    await page.goto("/permission/requests", { waitUntil: "domcontentloaded" });
+    await page.goto("/permission/requests?tab=mine", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
     await expect(page.getByText(`${JOB} · Can view`).first()).toBeVisible({ timeout: 60_000 });
 
@@ -158,8 +158,11 @@ test.describe("e2e.rag.requests", () => {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
-    const summary = page.locator("#gauge-request-detail-summary");
-    await expect(summary.getByText(`Target: ${JOB} · Can view`)).toBeVisible({ timeout: 60_000 });
+    // The title names what the request asks for ("… asks for Chronon job billing-rollup · Can view").
+    const header = page.locator("#gauge-request-detail-header");
+    await expect(header.getByRole("heading", { name: new RegExp(`asks for ${JOB} · Can view$`) })).toBeVisible({
+      timeout: 60_000,
+    });
     const links = page.getByTestId("gauge-request-resource");
     await expect(links.getByRole("link", { name: "Open in Chronon" })).toHaveAttribute(
       "href",
@@ -175,7 +178,7 @@ test.describe("e2e.rag.requests", () => {
     const { fixtures } = await seedAuth(page, "admin");
     await page.goto("/permission/requests", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
-    await expect(page.getByText("Needs Review", { exact: true })).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator("#gauge-requests-tabs").getByRole("tab", { name: /Waiting for you/ })).toBeVisible({ timeout: 60_000 });
     await expect(
       page.locator(`a[href="/permission/requests/${fixtures.resource_request_id}"]`).first(),
     ).toBeVisible({ timeout: 60_000 });

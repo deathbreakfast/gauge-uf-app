@@ -1,4 +1,4 @@
-//! Permission app server functions and DTOs.
+//! Gauge server functions and DTOs.
 //!
 //! This module backs the `/permission` UI with APIs for:
 //! - permission/group/domain CRUD,
@@ -27,6 +27,8 @@ use uf_search_core::{SearchSourceItem, SearchSourceKey};
 
 #[cfg(feature = "ssr")]
 mod activity;
+/// [`surfaces`] — reads behind the Overview, People, Domains, request and service user pages.
+pub mod surfaces;
 /// [`viewer::get_viewer_access`] — what the signed-in person may do, read once per page.
 pub mod viewer;
 

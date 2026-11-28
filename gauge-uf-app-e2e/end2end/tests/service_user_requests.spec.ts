@@ -28,17 +28,22 @@ async function requestForServiceUser(page: Page, handle: string, allowPending = 
     timeout: 60_000,
   });
   await dialog.locator("textarea").fill(`pw service user request ${Date.now()}`);
-  await dialog.getByRole("button", { name: "Submit Request", exact: true }).click();
+  await dialog.getByRole("button", { name: "Send request", exact: true }).click();
+  const sent = dialog.getByTestId("gauge-request-sent");
   if (allowPending) {
-    const pending = dialog.getByText("A request for this access is already pending");
+    const pending = dialog.getByText(/already pending/);
     await expect(async () => {
       if (await pending.isVisible()) {
         await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+      } else if (await sent.isVisible()) {
+        await dialog.getByRole("button", { name: "Done", exact: true }).click();
       }
       await expect(dialog).toHaveCount(0, { timeout: 1_000 });
     }).toPass({ timeout: 60_000 });
     return;
   }
+  await expect(sent).toBeVisible({ timeout: 60_000 });
+  await dialog.getByRole("button", { name: "Done", exact: true }).click();
   await expect(dialog).toHaveCount(0, { timeout: 60_000 });
 }
 
@@ -105,15 +110,22 @@ test.describe("gauge.request-for-service-user", () => {
     const handle = fixtures.service_user_handle;
     await requestForServiceUser(page, handle);
 
-    await page.goto(`/permission/requests?q=${encodeURIComponent(handle)}`, {
+    await page.goto(`/permission/requests?tab=mine&q=${encodeURIComponent(handle)}`, {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
     const mine = page.locator("#gauge-requests-mine");
-    await expect(mine.getByText(`for @${handle}`).first()).toBeVisible({ timeout: 60_000 });
+    // The requester owns the service user, so the row names them as its owner.
+    await expect(mine.getByText(new RegExp(`^for @${handle}, owned by `)).first()).toBeVisible({
+      timeout: 60_000,
+    });
 
-    await mine.getByRole("button", { name: "Open", exact: true }).first().click();
-    await expect(page.getByText(`For: @${handle}`)).toBeVisible({ timeout: 60_000 });
+    await mine.locator('a[href^="/permission/requests/"]').first().click();
+    const forFact = page.locator("#gauge-request-detail-for");
+    await expect(forFact.getByRole("link", { name: `@${handle}` })).toBeVisible({ timeout: 60_000 });
+    await expect(forFact.getByText(/^Service user, owned by /)).toBeVisible();
+    await forFact.getByRole("link", { name: `@${handle}` }).click();
+    await expect(page.getByTestId("gauge-service-user-detail")).toBeVisible({ timeout: 60_000 });
   });
 
   test("pw-gauge-request-for-foreign-service-user-sad", async ({ page }) => {
@@ -127,7 +139,7 @@ test.describe("gauge.request-for-service-user", () => {
     await expect(dialog.locator(`option[value="${foreign}"]`)).toHaveCount(0);
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
 
-    await page.goto(`/permission/requests?q=${encodeURIComponent(foreign)}`, {
+    await page.goto(`/permission/requests?tab=mine&q=${encodeURIComponent(foreign)}`, {
       waitUntil: "domcontentloaded",
     });
     await waitForHydrated(page);
@@ -141,37 +153,37 @@ test.describe("gauge.request-for-service-user", () => {
     const handle = fixtures.service_user_handle;
     await requestForServiceUser(page, handle, true);
 
-    await page.goto("/permission/requests", { waitUntil: "domcontentloaded" });
+    await page.goto("/permission/requests?tab=mine", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
     const mine = page.locator("#gauge-requests-mine");
     const status = page.locator("#gauge-requests-filter-status select");
     const forKind = page.locator("#gauge-requests-filter-for select");
-    const forHandle = mine.getByText(`for @${handle}`).first();
-    const peopleRow = mine.getByText(/^Permission - PENDING$/).first();
+    const forHandle = mine.getByText(new RegExp(`^for @${handle}`)).first();
+    const peopleRow = mine.getByText("Person", { exact: true }).first();
     await expect(forHandle).toBeVisible({ timeout: 60_000 });
     await expect(peopleRow).toBeVisible();
 
     await status.selectOption("approved");
     await expect(page).toHaveURL(/status=approved/);
-    await expect(mine.getByText(`for @${handle}`)).toHaveCount(0);
+    await expect(mine.getByText(new RegExp(`^for @${handle}`))).toHaveCount(0);
 
     await status.selectOption("pending");
     await forKind.selectOption("people");
     await expect(page).toHaveURL(/for=people/);
-    await expect(mine.getByText(`for @${handle}`)).toHaveCount(0);
+    await expect(mine.getByText(new RegExp(`^for @${handle}`))).toHaveCount(0);
     await expect(peopleRow).toBeVisible();
 
     await forKind.selectOption("service_users");
     await expect(page).toHaveURL(/status=pending/);
     await expect(page).toHaveURL(/for=service_users/);
     await expect(forHandle).toBeVisible();
-    await expect(mine.getByText(/^Permission - PENDING$/)).toHaveCount(0);
+    await expect(mine.getByText("Person", { exact: true })).toHaveCount(0);
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
     await expect(status).toHaveValue("pending", { timeout: 60_000 });
     await expect(forKind).toHaveValue("service_users");
     await expect(forHandle).toBeVisible({ timeout: 60_000 });
-    await expect(mine.getByText(/^Permission - PENDING$/)).toHaveCount(0);
+    await expect(mine.getByText("Person", { exact: true })).toHaveCount(0);
   });
 });

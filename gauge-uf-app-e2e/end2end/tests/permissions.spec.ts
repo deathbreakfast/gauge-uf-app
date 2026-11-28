@@ -12,7 +12,7 @@ import {
 test.describe("e2e.perm.index", () => {
   test("e2e.perm.index.load_happy", async ({ page }) => {
     await seedAuth(page, "admin");
-    await page.goto("/permission", { waitUntil: "domcontentloaded" });
+    await page.goto("/permission/permissions", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
     await expect(page.getByTestId("gauge-permissions-index")).toBeVisible({
       timeout: 60_000,
@@ -99,7 +99,7 @@ test.describe("e2e.domain.create", () => {
     await page.getByRole("button", { name: "Create Domain", exact: true }).click();
     await expect(page).toHaveURL(/\/permission\/domains\//, { timeout: 60_000 });
     await waitForHydrated(page);
-    await expect(page.getByText(/Domain Detail/i)).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId("gauge-domain-crumbs").getByText(name)).toBeVisible({ timeout: 60_000 });
     await expect(page.getByLabel(/Display name/i)).toHaveValue(name, { timeout: 30_000 });
   });
 
@@ -169,7 +169,7 @@ test.describe("e2e.domain.create", () => {
     const picker = page.locator("#gauge-domain-owners-picker").getByRole("combobox");
     // Non-admin may not see the picker (editor-only owners UI) or gets the add refused.
     if ((await picker.count()) === 0) {
-      await expect(page.getByText(/Domain Detail/i)).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByTestId("gauge-domain-crumbs").getByText(name)).toBeVisible({ timeout: 60_000 });
       return;
     }
     await pickPrincipal(page, "gauge-domain-owners-picker", "Otto", PEOPLE.outsider);

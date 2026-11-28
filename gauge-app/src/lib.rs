@@ -1,8 +1,8 @@
 #![recursion_limit = "256"]
-//! Permission administration app routes and UI composition.
+//! Gauge: the app for permissions, groups and access requests, its routes and UI composition.
 //!
-//! Orbital ops UI for permission domains, permissions, groups, and
-//! request/review under `/permission`. Domain rules and `actor_can` live in the
+//! Orbital ops UI under `/permission`: an Overview, people and service users, permission
+//! domains, permissions, groups, request/review and Gauge's change log. Domain rules and `actor_can` live in the
 //! sibling crate `gauge`
 //! ([gauge](https://github.com/unified-field-dev/gauge)).
 //!
@@ -27,7 +27,8 @@
 //!   [Get started](#activity-on-detail-pages)
 //!
 //! - **Help spotlight tours** — Route-scoped Help steps under [`mod@help_steps`]
-//!   (permissions, create flows, detail pages, groups, requests). Hosts enable
+//!   (Overview, people, permissions, create flows, detail pages, groups, domains,
+//!   requests, activity). Hosts enable
 //!   `offering-help` (or `full`) so `HelpTourPlayer` mounts; call
 //!   [`ensure_help_steps_linked`] so inventory links. Bare `/permission` matches
 //!   inventory `/permission/permissions`.
@@ -233,7 +234,7 @@ use uf_product_macros::uf_app;
 mod bridge;
 /// Shared page pieces such as the error bar.
 pub mod components;
-/// Help spotlight tour step inventory for Permission routes.
+/// Help spotlight tour step inventory for Gauge routes.
 pub mod help_steps;
 /// Shell layout wrapping routed pages ([`PermissionLayout`]).
 pub mod layout;
@@ -257,20 +258,22 @@ pub use bridge::{
 pub use help_steps::ensure_help_steps_linked;
 pub use layout::PermissionLayout;
 pub use lazy_routes::{
-    prefetch_family, DomainCreateRoute, DomainDetailRoute, GroupCreateRoute, GroupDetailRoute,
-    GroupsIndexRoute, PermissionCreateRoute, PermissionDetailRoute, PermissionsIndexRoute,
-    RequestDetailRoute, RequestsIndexRoute,
+    prefetch_family, ActivityRoute, DomainCreateRoute, DomainDetailRoute, DomainsIndexRoute,
+    GroupCreateRoute, GroupDetailRoute, GroupsIndexRoute, OverviewRoute, PeopleIndexRoute,
+    PermissionCreateRoute, PermissionDetailRoute, PermissionsIndexRoute, PersonDetailRoute,
+    RequestDetailRoute, RequestsIndexRoute, ServiceUserDetailRoute,
 };
 pub use pages::{
-    DomainCreatePage, DomainDetailPage, GroupCreatePage, GroupDetailPage, GroupsIndexPage,
-    PermissionCreatePage, PermissionDetailPage, PermissionsIndexPage, RequestDetailPage,
-    RequestsIndexPage,
+    ActivityPage, DomainCreatePage, DomainDetailPage, DomainsIndexPage, GroupCreatePage,
+    GroupDetailPage, GroupsIndexPage, OverviewPage, PeopleIndexPage, PermissionCreatePage,
+    PermissionDetailPage, PermissionsIndexPage, PersonDetailPage, RequestDetailPage,
+    RequestsIndexPage, ServiceUserDetailPage,
 };
 
 uf_app! {
-    name: "Permission",
+    name: "Gauge",
     id: "permission",
-    description: "Permission and group administration",
+    description: "Permissions, groups and access requests",
     icon: "🔐",
     version: "0.1.0",
     routes: PermissionRoutes,
@@ -279,7 +282,7 @@ uf_app! {
     permission_manifest: permissions::GaugePermission,
 }
 
-/// Route tree for the Permission app: index/detail/create pages for permissions,
+/// Route tree for Gauge: the Overview, people, service users, activity, and index/detail/create pages for permissions,
 /// groups, domains, and requests. Auth gating lives inside [`PermissionLayout`] so the
 /// app bar stays visible when access is denied.
 #[allow(missing_docs)]
@@ -289,7 +292,12 @@ pub fn PermissionRoutes() -> impl leptos_router::MatchNestedRoutes + Clone {
     crate::help_steps::ensure_help_steps_linked();
     view! {
         <ParentRoute path=path!("permission") view=PermissionLayout>
-            <Route path=path!("") view={Lazy::<PermissionsIndexRoute>::new()} />
+            <Route path=path!("") view={Lazy::<OverviewRoute>::new()} />
+            <Route path=path!("people") view={Lazy::<PeopleIndexRoute>::new()} />
+            <Route path=path!("people/:id") view={Lazy::<PersonDetailRoute>::new()} />
+            <Route path=path!("service-users/:id") view={Lazy::<ServiceUserDetailRoute>::new()} />
+            <Route path=path!("activity") view={Lazy::<ActivityRoute>::new()} />
+            <Route path=path!("domains") view={Lazy::<DomainsIndexRoute>::new()} />
             <Route path=path!("permissions") view={Lazy::<PermissionsIndexRoute>::new()} />
             <Route path=path!("permissions/:id") view={Lazy::<PermissionDetailRoute>::new()} />
             <Route path=path!("create-permission") view={Lazy::<PermissionCreateRoute>::new()} />

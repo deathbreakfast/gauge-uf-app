@@ -100,7 +100,10 @@ pub fn describe_error(raw: &str, what: &str) -> ErrorCopy {
             "This change needs a code from your authenticator app. Try again and type the code when asked.".to_string(),
         );
     }
-    if raw.contains("permission_denied::") || raw.contains("not_authorized:") {
+    if raw.contains("permission_denied::")
+        || raw.contains("not_authorized:")
+        || raw.contains("Not authorized")
+    {
         return copy(
             ErrorKind::Denied,
             "You don't have access",
