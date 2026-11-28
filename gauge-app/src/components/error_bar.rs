@@ -2,7 +2,9 @@
 //!
 //! Server functions fail with prefixed strings (`permission_denied::…`, `STEP_UP:…`,
 //! `not_authorized: …`, `validation: …`, or a plain `Failed to …` for a Valence failure).
-//! [`describe_error`] sorts them into an [`ErrorCopy`]; [`ErrorBar`] shows that copy so no
+//! [`describe_error`](crate::components::error_bar::describe_error) sorts them into an
+//! [`ErrorCopy`](crate::components::error_bar::ErrorCopy);
+//! [`ErrorBar`](crate::components::error_bar::ErrorBar) shows that copy so no
 //! page puts a raw `ServerFnError` string in front of people.
 
 use leptos::prelude::*;

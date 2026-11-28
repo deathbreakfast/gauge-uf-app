@@ -1,7 +1,7 @@
 //! "Remove Ravi Menon from Release Captains?": what the person loses, what they keep, then
 //! the code dialog.
 //!
-//! The lists come from [`get_principal_access`]: a permission is lost when every path to it
+//! The lists come from [`get_principal_access`](crate::server::get_principal_access): a permission is lost when every path to it
 //! runs through what's being removed, and kept (with the path that keeps it) otherwise.
 
 use gauge::types::{AccessPath, PermissionRef, PrincipalKey, PrincipalKind, PrincipalRefDto};

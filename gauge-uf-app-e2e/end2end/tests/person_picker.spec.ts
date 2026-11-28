@@ -41,7 +41,7 @@ async function createPermission(page: Page, name: string) {
   await page.locator("#gauge-create-perm-name input").fill(name);
   await page.getByLabel(/Description/i).fill("person picker e2e");
   await page.locator("select").first().selectOption({ label: "Ops" });
-  await page.getByRole("button", { name: "Create permission" }).click();
+  await page.locator("#gauge-create-perm-submit").getByRole("button").click();
   await expect(page).toHaveURL(/\/permission\/permissions\/[^/]+$/, { timeout: 60_000 });
   await waitForHydrated(page);
   await openAllowDialog(page);

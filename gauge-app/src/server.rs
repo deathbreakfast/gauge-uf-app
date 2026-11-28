@@ -937,12 +937,25 @@ pub async fn decide_permission_request(
     /// Decision (approve/reject) and target request id.
     input: PermissionRequestDecisionInput,
 ) -> Result<PermissionRequestRowDto, ServerFnError> {
+    use gauge::types::PermissionRequestDecision;
+
     let ctx = higgs::Higgs::from_request().await?;
     require_session(&ctx)?;
-    gauge::service::decide_permission_request(input, &valence_from_ctx(&ctx)?)
+    let v = valence_from_ctx(&ctx)?;
+    // Gauge wants a reason with every denial. Until the request page asks for one, a deny
+    // from it goes through `deny_request` with this sentence.
+    if matches!(input.decision, PermissionRequestDecision::Deny) {
+        return gauge::service::deny_request(&input.request_id, DEFAULT_DENY_REASON, &v)
+            .await
+            .map_err(|e| map_service_err("deny the request", e));
+    }
+    gauge::service::decide_permission_request(input, &v)
         .await
         .map_err(|e| map_service_err("decide permission request", e))
 }
+
+/// The reason a deny from the request page carries until that page asks for one.
+pub const DEFAULT_DENY_REASON: &str = "The owners turned this request down.";
 
 /// The resource behind a resource-scoped domain, or `None` for a taxonomy domain.
 #[cfg(feature = "ssr")]

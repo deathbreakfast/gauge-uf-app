@@ -216,7 +216,7 @@ test.describe("e2e.perm.create", () => {
     const domainSelect = page.locator("select").first();
     await expect(domainSelect).toBeVisible({ timeout: 60_000 });
     await domainSelect.selectOption({ label: "Ops" });
-    await page.getByRole("button", { name: "Create permission" }).click();
+    await page.locator("#gauge-create-perm-submit").getByRole("button").click();
     await expect(page).toHaveURL(/\/permission\/permissions\//, { timeout: 60_000 });
     await expect(page.getByRole("heading", { name })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(`E2EPerm${stamp}`, { exact: true })).toBeVisible();
@@ -227,7 +227,7 @@ test.describe("e2e.perm.create", () => {
     await page.goto("/permission/create-permission", { waitUntil: "domcontentloaded" });
     await waitForHydrated(page);
     await page.locator("#gauge-create-perm-name input").fill("NoDomainPerm");
-    await page.getByRole("button", { name: "Create permission" }).click();
+    await page.locator("#gauge-create-perm-submit").getByRole("button").click();
     await expect(page.getByTestId("gauge-error-bar").getByText("Pick a domain.")).toBeVisible({
       timeout: 30_000,
     });

@@ -1,6 +1,7 @@
 //! What the signed-in person may do in Gauge, read once per page load.
 //!
-//! Pages offer admin and owner buttons only when [`ViewerAccess`] allows them. The server
+//! Pages offer admin and owner buttons only when
+//! [`ViewerAccess`](crate::server::viewer::ViewerAccess) allows them. The server
 //! keeps its own checks on every call; this only stops a page from offering what the server
 //! would refuse.
 

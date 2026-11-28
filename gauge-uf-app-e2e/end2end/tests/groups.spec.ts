@@ -90,7 +90,7 @@ test.describe("e2e.group.create", () => {
     await waitForHydrated(page);
     const denied = page.getByTestId("gauge-denied-page");
     await expect(denied.getByText("Creating groups needs GaugeAdmin")).toBeVisible({ timeout: 60_000 });
-    await expect(page.getByRole("button", { name: /Create Group/i })).toHaveCount(0);
+    await expect(page.locator("#gauge-create-group-form")).toHaveCount(0);
   });
 
   test("e2e.group.create.empty_name", async ({ page }) => {
