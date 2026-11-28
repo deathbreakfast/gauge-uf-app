@@ -200,6 +200,23 @@ impl DatabaseBackend for UniqueTolerantMemBackend {
 
 struct HiggsFactory(RouterValenceFactory);
 
+/// Session actors through the external-actor policy; Higgs's own System builds (Lepton's
+/// step-up) through a factory without it.
+struct SplitFactory {
+    session: Arc<dyn HiggsValenceFactory>,
+    system: Arc<dyn HiggsValenceFactory>,
+}
+
+impl HiggsValenceFactory for SplitFactory {
+    fn build(&self, actor_json: &serde_json::Value) -> anyhow::Result<Valence> {
+        if actor_json.get("System").is_some() {
+            log::info!("e2e higgs: system valence for {actor_json}");
+            return self.system.build(actor_json);
+        }
+        self.session.build(actor_json)
+    }
+}
+
 impl HiggsValenceFactory for HiggsFactory {
     fn build(&self, actor_json: &serde_json::Value) -> anyhow::Result<Valence> {
         self.0.build(actor_json).map_err(|e| anyhow::anyhow!("{e}"))
@@ -610,6 +627,17 @@ pub async fn init_e2e_valence() {
             Arc::clone(&router),
             RouterValenceFactoryConfig::new(default_key.clone()),
         )));
+    // Lepton's step-up reads TOTP factors through `Higgs::unsafe_system_valence`, which
+    // the external-actor policy refuses. System builds go to a plain router factory, as
+    // in Lepton hosts; session actors keep the external policy. gauge-app itself never
+    // asks Higgs for System (uf-no-actor-elevation).
+    let factory: Arc<dyn HiggsValenceFactory> = Arc::new(SplitFactory {
+        session: factory,
+        system: Arc::new(HiggsFactory(RouterValenceFactory::new(
+            Arc::clone(&router),
+            RouterValenceFactoryConfig::new(default_key.clone()),
+        ))),
+    });
     let higgs = Arc::new(
         HiggsConfig::builder()
             .valence_factory_arc(factory)
