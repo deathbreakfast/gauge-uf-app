@@ -100,6 +100,8 @@ ssr = [
     "lepton/ssr",
     "dep:lepton-auth",
     "lepton-auth/ssr",
+    # Step-up code checks and authenticator status (gauge-app turns it on too).
+    "lepton-auth/totp",
     "dep:lepton-identity",
     "dep:lepton-app",
     "lepton-app/ssr",
