@@ -986,6 +986,8 @@ async fn resource_of_request(
 
 /// Rename resource requests to "Chronon job billing-rollup · Can view". A row whose
 /// resource can't be read keeps Gauge's own label; the failure is logged.
+///
+/// Loads one domain per resource row; follow-up rag-gauge-app-fu2 batches those loads.
 #[cfg(feature = "ssr")]
 async fn relabel_resource_requests(v: &valence::Valence, rows: &mut [PermissionRequestRowDto]) {
     for row in rows {
@@ -1166,6 +1168,9 @@ pub async fn get_group_managed(
 
 /// The resources a group holds a role on: direct grants on a resource bundle, or a seat in
 /// a bundle's owners group. Grants Gauge withholds from the caller don't show.
+///
+/// Scans every permission and group, then loads each bundle's domain; follow-up rag-gauge-app-fu2
+/// replaces this with a Gauge query by holder and a batched domain load.
 #[uf_product_macros::server]
 pub async fn list_group_resource_access(
     /// Group id.

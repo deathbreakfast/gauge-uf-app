@@ -61,8 +61,10 @@ pub struct BundlePermissionRow {
 pub struct BundleRoleRow {
     /// "Can view", "Can run", "Owner".
     pub role: String,
-    /// "View, Run", or the owners group line for Owner.
+    /// "View, Run", or "Every action, including Maintain" for Owner.
     pub grants: String,
+    /// For Owner, the owners group page the role comes from.
+    pub group_href: Option<String>,
 }
 
 /// A resource-scoped domain as its domain page shows it.
@@ -209,11 +211,13 @@ pub fn bundle_roles(bundle_actions: &[&str], owners_group_id: &str) -> Vec<Bundl
         .map(|(role, grants)| BundleRoleRow {
             role: role.to_string(),
             grants: grants.join(", "),
+            group_href: None,
         })
         .collect();
     rows.push(BundleRoleRow {
         role: "Owner".to_string(),
-        grants: format!("Member of {owners_group_id}: every action, including Maintain"),
+        grants: "Every action, including Maintain".to_string(),
+        group_href: Some(format!("/permission/groups/{owners_group_id}")),
     });
     rows
 }
@@ -356,7 +360,12 @@ mod tests {
             ]
         );
         assert_eq!(roles[3].role, "Owner");
-        assert!(roles[3].grants.contains("rp_owners_x"));
+        assert!(!roles[3].grants.contains("rp_owners_x"));
+        assert_eq!(
+            roles[3].group_href.as_deref(),
+            Some("/permission/groups/rp_owners_x")
+        );
+        assert_eq!(roles[0].group_href, None);
 
         let table = ["View", "Unmask", "Edit", "Maintain"];
         let names: Vec<String> = bundle_roles(&table, "o")

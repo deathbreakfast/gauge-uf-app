@@ -127,7 +127,13 @@ test.describe("e2e.rag.domain", () => {
     await expect(roles.getByRole("row").filter({ hasText: "Can edit" })).toContainText(
       "View, Run, Edit",
     );
-    await expect(roles.getByRole("row").filter({ hasText: "Owner" })).toContainText("rp_owners_");
+    const ownerRow = roles.getByRole("row").filter({ hasText: "Owner" });
+    await expect(ownerRow).toContainText("Every action, including Maintain");
+    await expect(ownerRow).not.toContainText("rp_owners_");
+    await expect(ownerRow.getByRole("link", { name: "the Owners group" })).toHaveAttribute(
+      "href",
+      /^\/permission\/groups\/rp_owners_/,
+    );
   });
 
   test("e2e.rag.domain.taxonomy_domain_has_no_card", async ({ page }) => {

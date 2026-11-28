@@ -136,7 +136,15 @@ fn bundle_view(bundle: ResourceBundleDto) -> impl IntoView {
                     {bundle.roles.into_iter().map(|row| view! {
                         <TableRow>
                             <TableCell><TableCellLayout>{row.role}</TableCellLayout></TableCell>
-                            <TableCell><TableCellLayout>{row.grants}</TableCellLayout></TableCell>
+                            <TableCell>
+                                <TableCellLayout>
+                                    {row.grants}
+                                    {row.group_href.map(|href| view! {
+                                        ", through "
+                                        <Link href=href>"the Owners group"</Link>
+                                    })}
+                                </TableCellLayout>
+                            </TableCell>
                         </TableRow>
                     }).collect_view()}
                 </TableBody>
